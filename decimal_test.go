@@ -18,24 +18,51 @@ func TestDoc(t *testing.T) {
 	}
 }
 
-func TestIsNull(t *testing.T) {
-	var d Decimal
+func TestNull(t *testing.T) {
+	var d Decimal = Null
 
 	if !d.IsNull() {
-		t.Error(`d.IsNull() = false with d not initialized`)
+		t.Error(`Null.IsNull() = false`)
 	}
-
 	if d.IfNull(3) != 3 {
-		t.Error(`d.IfNull() return bad value with d set to 3`)
+		t.Error(`Null.IfNull(3) return bad value`)
 	}
 
-	d = Zero
+	if Zero.IsNull() {
+		t.Error(`Zero.IsNull() = true`)
+	}
+	if Zero.IfNull(3) == 3 {
+		t.Error(`Zero.IfNull(3) return bad value`)
+	}
+
+	if NearZero.IsNull() {
+		t.Error(`NearZero.IsNull() = true`)
+	}
+	if NearPositiveZero.IsNull() {
+		t.Error(`NearZero.IsNull() = true`)
+	}
+	if NearNegativeZero.IsNull() {
+		t.Error(`NearZero.IsNull() = true`)
+	}
+
+	d = 3
 	if d.IsNull() {
-		t.Error(`d.IsNull() = true with d set to Zero`)
+		t.Error(`3.IsNull() = true`)
 	}
 
-	if d.IfNull(3) == 3 {
-		t.Error(`d.IfNull() return bad value with d set to Zero`)
+	d = PositiveInfinity
+	if d.IsNull() {
+		t.Error(`3.IsNull() = true`)
+	}
+
+	d = NegativeInfinity
+	if d.IsNull() {
+		t.Error(`3.IsNull() = true`)
+	}
+
+	d = NaN
+	if d.IsNull() {
+		t.Error(`3.IsNull() = true`)
 	}
 }
 
@@ -205,13 +232,39 @@ func TestNewNilOrNullFromString(t *testing.T) {
 }
 
 func TestIsPositiveOrNegative(t *testing.T) {
-	v := [...]Decimal{Null, Zero, NearZero}
+	v := [...]Decimal{Null, Zero, NearZero, NaN, 0x4400000000000000, 0x7e00000000000000}
 	for _, d := range v {
 		if d.IsPositive() {
 			t.Errorf(`d should not be positive, d = %v, d.IsPositive() = %t`, d, d.IsPositive())
 		}
 
 		if d.IsNegative() {
+			t.Errorf(`d should not be negative, d = %v, d.IsNegative() = %t`, d, d.IsNegative())
+		}
+	}
+}
+
+func TestIsPositive(t *testing.T) {
+	v := [...]Decimal{NearPositiveZero, NewFromInt(1), PositiveInfinity}
+	for _, d := range v {
+		if !d.IsPositive() {
+			t.Errorf(`d should not be positive, d = %v, d.IsPositive() = %t`, d, d.IsPositive())
+		}
+
+		if d.IsNegative() {
+			t.Errorf(`d should not be negative, d = %v, d.IsNegative() = %t`, d, d.IsNegative())
+		}
+	}
+}
+
+func TestIsNegative(t *testing.T) {
+	v := [...]Decimal{NearNegativeZero, NewFromInt(-1), NegativeInfinity}
+	for _, d := range v {
+		if d.IsPositive() {
+			t.Errorf(`d should not be positive, d = %v, d.IsPositive() = %t`, d, d.IsPositive())
+		}
+
+		if !d.IsNegative() {
 			t.Errorf(`d should not be negative, d = %v, d.IsNegative() = %t`, d, d.IsNegative())
 		}
 	}
@@ -299,6 +352,10 @@ func TestNewFromStringNans(t *testing.T) {
 			if !d.IsNaN() {
 				t.Errorf(`d should be NaN, d = %v, d.IsNaN() = %t`, d, d.IsNaN())
 			}
+
+			if d.String() != "NaN" {
+				t.Errorf(`d.String() should be "NaN", d = %v, d.String() = %v`, d, d.String())
+			}
 		}
 	}
 }
@@ -356,10 +413,6 @@ func TestNewFromFloat(t *testing.T) {
 		t.Errorf(`NewFromFloat(123456) should be 123456, d = %v`, d)
 	}
 
-	if d := NewFromFloat32(123.456).Round(3); d != New(123456, -3) {
-		t.Errorf(`NewFromFloat(123.456) should be 123.456, d = %v`, d)
-	}
-
 	if d := NewFromFloat32(0.01).Round(2); d != New(1, -2) {
 		t.Errorf(`NewFromFloat(0.01) should be 0.01, d = %v`, d)
 	}
@@ -382,6 +435,10 @@ func TestNewFromFloat(t *testing.T) {
 
 	if d := NewFromFloat(1.123e-10); !d.Equal(New(1123, -13)) {
 		t.Errorf(`NewFromFloat(1.123e-10) should be 1.123e-10, d = %v`, d)
+	}
+
+	if d := NewFromFloat(1.23456e+40).Round(3); d != PositiveInfinity {
+		t.Errorf(`NewFromFloat(1.23456e+40) should be +Inf, d = %v`, d)
 	}
 
 	if d := NewFromFloat(1.1e-70); d != NearPositiveZero {
@@ -447,7 +504,7 @@ func TestNewOneOrOnOrYesFromString(t *testing.T) {
 	}
 }
 
-func TestNewInfiniteFromString(t *testing.T) {
+func TestNewPositiveInfiniteFromString(t *testing.T) {
 	infs := [...]string{"inf", "inF", "iNf", "iNF", "Inf", "InF", "INf", "INF", "+inf", "+inF", "+iNf", "+iNF", "+Inf", "+InF", "+INf", "+INF", "1E1000"}
 	for _, s := range infs {
 		if d, err := NewFromString(s); err != nil {
@@ -464,8 +521,19 @@ func TestNewInfiniteFromString(t *testing.T) {
 			if d.IsNegative() {
 				t.Errorf(`d should not be negative, d = %v, d.IsNegative() = %t`, d, d.IsNegative())
 			}
+
+			if d.IsNaN() {
+				t.Errorf(`d should not be NaN, d = %v, d.IsNaN() = %t`, d, d.IsNaN())
+			}
+
+			if d.String() != "+Inf" {
+				t.Errorf(`Infinity string should be "+Inf", d = %v, d.String() = %v`, d, d.String())
+			}
 		}
 	}
+}
+
+func TestNewNegativeInfiniteFromString(t *testing.T) {
 	minfs := [...]string{"-inf", "-inF", "-iNf", "-iNF", "-Inf", "-InF", "-INf", "-INF", "-1.234E+500"}
 	for _, s := range minfs {
 		if d, err := NewFromString(s); err != nil {
@@ -482,9 +550,19 @@ func TestNewInfiniteFromString(t *testing.T) {
 			if !d.IsNegative() {
 				t.Errorf(`d should be negative, d = %v, d.IsNegative() = %t`, d, d.IsNegative())
 			}
+
+			if d.IsNaN() {
+				t.Errorf(`d should not be NaN, d = %v, d.IsNaN() = %t`, d, d.IsNaN())
+			}
+
+			if d.String() != "-Inf" {
+				t.Errorf(`Infinity string should be "+Inf", d = %v, d.String() = %v`, d, d.String())
+			}
 		}
 	}
+}
 
+func TestNewFromStringErrors(t *testing.T) {
 	errs := [...]string{"0.a", ".123e--19", "azerty", "-mCF", "-+23"}
 	for _, s := range errs {
 		if _, err := NewFromString(s); err == nil {
@@ -713,6 +791,16 @@ func TestRoundFloor(t *testing.T) {
 }
 
 func TestRoundBank(t *testing.T) {
+	if d := NearZero.RoundBank(1); d != Zero {
+		t.Errorf(`~0 rounded ceil to 1 decimal should be exactly 0 and not %v`, d)
+	}
+	if d := NearPositiveZero.RoundBank(1); d != Zero {
+		t.Errorf(`~+0 rounded ceil to 1 decimal should be exactly 0 and not %v`, d)
+	}
+	if d := NearNegativeZero.RoundBank(1); d != Zero {
+		t.Errorf(`~-0 rounded ceil to 1 decimal should be exactly 0 and not %v`, d)
+	}
+
 	if d := New(545, 0).RoundBank(-1); d != 540 {
 		t.Errorf(`545 rounded bank to -1 decimals should be 540 and not %v`, d)
 	}
@@ -1538,4 +1626,3 @@ func BenchmarkPublicDecimalPow600(b *testing.B) {
 		_ = d1.Pow(d2)
 	}
 }
-

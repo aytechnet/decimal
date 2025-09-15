@@ -492,7 +492,7 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 			if e2 == math.MaxInt64 { // if d2 == -Inf or +Inf
 				if sign&(v1^v2) == 0 { // if sign are the same, +Inf + +Inf = +Inf or -Inf + -Inf = -Inf
 					return v2, m2, e2
-				} else { // if sign are differnt +Inf + -Inf == NaN
+				} else { // if sign are different +Inf + -Inf == NaN
 					return loss, 0, 1 // NaN must have v = loss, m = 0 and e is not 0, math.MaxInt64 or math.MinInt64
 				}
 			} else if e2 == math.MinInt64 { // if d2 == ~0

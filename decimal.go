@@ -22,7 +22,7 @@ import (
 // Note 0 is unitialized Decimal and its value for calculation is 0 like Zero which is initialized 0
 // Note Zero is now the same int64 value as types.IntZero, so casting an types.IntZero to Decimal is safe provided is absolute value is not too high
 // Note you need to use Decimal method for calculation, you cannot use + - * / or any other operators unless Decimal is a real non-zero integer value
-// Unitialized Decimal is usefull when using JSON marshaling/unmarshaling.
+// Unitialized Decimal is useful when using JSON marshaling/unmarshaling.
 //
 // Note Decimal does not follow IEEE 754 decimal floating point 64 bits representation.
 // This is because Decimal is compatible with a large range of int64 values as described above for ease of use
@@ -59,7 +59,7 @@ const (
 	PositiveInfinity Decimal = 0x5e00000000000000
 	NegativeInfinity Decimal = -PositiveInfinity
 
-	// NaN represent a decimal wich do not represents any more a number.
+	// NaN represent a decimal which do not represents any more a number.
 	// NaN should never be compared with == or != directly as they are multiple representation of such "nan" internally (search for NaN boxing for more info).
 	// Use IsNaN method to check if a decimal is not a number.
 	NaN Decimal = 0x4200000000000000
@@ -210,7 +210,7 @@ func (d1 Decimal) Mod(d2 Decimal) Decimal {
 
 // Neg returns -d.
 func (d Decimal) Neg() Decimal {
-	if d.IsExactlyZero() || d.IsNaN() {
+	if d.IsExactlyZero() || d == NearZero {
 		return d
 	} else {
 		return -d
@@ -253,7 +253,7 @@ func (d1 Decimal) GreatherThan(d2 Decimal) bool {
 	return d.IsPositive()
 }
 
-//  GreaterThanOrEqual returns true when d1 is greater than or equal to d2 (d1 >= d2).
+// GreaterThanOrEqual returns true when d1 is greater than or equal to d2 (d1 >= d2).
 func (d1 Decimal) GreatherThanOrEqual(d2 Decimal) bool {
 	d := d1.Sub(d2)
 
@@ -397,8 +397,9 @@ func (d Decimal) IsInteger() bool {
 //	true if d > 0 or d == ~+0
 //	false if d == Null or d == Zero or d == ~0
 //	false if d < 0 or d == ~-0
+//	false if d is NaN
 func (d Decimal) IsPositive() bool {
-	return d > 0 // FIXME: Zero is negative so this case is not needed
+	return d > 0 && !d.IsNaN() // FIXME: Zero is negative so this case is not needed
 }
 
 // IsNegative return
@@ -420,13 +421,22 @@ func (d Decimal) IsInfinite() bool {
 
 // IsNaN return
 //
-//	true if a decimal is not a a number (NaN) or infinity (+Inf or -Inf)
+//	true if d is not a a number (NaN)
 //	false in any other case
 func (d Decimal) IsNaN() bool {
-	if d != NearZero && d != -NearZero {
-		u := uint64(d.Abs())
+	u := uint64(d.Abs())
 
-		return u&loss != 0 && u&MaxInt == 0 && Decimal(u) != NearPositiveZero
+	if u&MaxInt == 0 {
+		u = u >> 56 // decimal_bit_e - 1 to match last byte (easier to read)
+
+		// excluded as not nan :
+		//   0x40 : near zero (exponant = 0)
+		//   0x5e : positive infinity (exponant = 15)
+		//   0x60 : near positive zero (exponant = -16)
+		// nan numbers (nan boxing) :
+		//   0x42 to 0x5c : exponant 1 to 14
+		//   0x62 to 0x7e : exponant -15 to -1
+		return u >= 0x42 && u < 0x5c || u >= 0x62 && u <= 0x7e
 	}
 
 	return false
