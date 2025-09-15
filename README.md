@@ -1,4 +1,10 @@
 # decimal
+
+[![ci](https://github.com/aytechnet/decimal/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/aytechnet/decimal/actions/workflows/go.yml)
+[![Go Doc](https://godoc.org/github.com/aytechnet/decimal?status.svg)](https://godoc.org/github.com/aytechnet/decimal) 
+[![Go Coverage](https://img.shields.io/codecov/c/github/aytechnet/decimal/main?color=brightcolor)](https://codecov.io/gh/aytechnet/decimal)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aytechnet/decimal)](https://goreportcard.com/report/github.com/aytechnet/decimal)
+
 High performance, zero-allocation, low precision (17 digits), partially compatible with int64 and shopspring Decimal
 
 ## Features
