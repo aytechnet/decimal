@@ -6,16 +6,10 @@ import (
 	"log"
 	"math"
 	"strconv"
-	"unsafe"
-
-	govalues "github.com/govalues/decimal"
-	shopspring "github.com/shopspring/decimal"
 )
 
 func TestDoc(t *testing.T) {
 	var a Decimal = -1001 // a is a Decimal of integer value -1001
-
-	log.Printf("sizeof(Decimal)=%d, sizeof(govalues.Decimal)=%d, sizeof(shopspring.Decimal)=%d", unsafe.Sizeof(a), unsafe.Sizeof(govalues.Decimal{}), unsafe.Sizeof(shopspring.Decimal{}))
 
 	if d := a.Div(1000).Sub(1).Mul(14000).Add(14).Div(-28); d == 1000 {
 		log.Printf("(((a/1000)-1)*14000+14)/-28 == 1000\n")
@@ -1061,15 +1055,6 @@ func TestCumulativeAddMul(t *testing.T) {
 		t.Errorf(`Cumulative 100000 times d = d.Add(%v) = %v and should be equal to 1000 as int64, d == 1000 is %t (d hex = 0x%016x)`, s, d, d == 1000, int64(d))
 	}
 
-	ss, _ := shopspring.NewFromString("0.01")
-	var sd shopspring.Decimal
-
-	for j := 0; j < 100000; j++ {
-		sd = sd.Add(ss)
-	}
-
-	log.Printf(`CumulativeAdd on shopspring.Decimal 100000 times of %v is %v`, ss, sd)
-
 	var sf float64 = 0.01
 	var f float64 = 0
 
@@ -1085,13 +1070,6 @@ func TestCumulativeAddMul(t *testing.T) {
 		d = d.Mul(ds)
 	}
 	log.Printf(`Cumulative 100000 times d = d.Mul(%v) = %v`, ds, d)
-
-	ss, _ = shopspring.NewFromString("1.000001")
-	sd, _ = shopspring.NewFromString("1")
-	for j := 0; j < 100000; j++ {
-		sd = sd.Mul(ss)
-	}
-	log.Printf(`Cumulative 100000 times sd = sd.Mul(%v) = %v`, ss, sd.Round(16))
 
 	f = 1.000001
 	sf = 1
@@ -1137,20 +1115,12 @@ func TestSumAvg(t *testing.T) {
 
 func TestIntConversion(t *testing.T) {
 	d := New(45712, -2)
-	s := shopspring.RequireFromString("457.12")
-
-	log.Printf("d = %v, d.IntPart() = %v, s = %v, s.IntPart() = %v", d, d.IntPart(), s, s.IntPart())
 
 	if i, err := d.IntPartErr(); err != nil {
 		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
 	} else if i != d.Int64() {
 		t.Errorf(`.IntPartErr(...) returned different integer %v != %v`, i, d.Int64())
 	}
-
-	du := New(100052, -2)
-	su := shopspring.RequireFromString("1000.52")
-
-	log.Printf("du = %v, du.IntPart() = %v, su = %v, su.IntPart() = %v", du, du.IntPart(), su, su.IntPart())
 }
 
 func TestSign(t *testing.T) {
@@ -1394,12 +1364,6 @@ func BenchmarkDecimalNewFromFloat(b *testing.B) {
 	}
 }
 
-func BenchmarkShopspringNewFromFloat(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		shopspring.NewFromFloat(100020003000400050e-17)
-	}
-}
-
 func BenchmarkDecimalNewFromString(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		NewFromString("100020003000400050e-17")
@@ -1451,15 +1415,6 @@ func BenchmarkDecimalAdd(b *testing.B) {
 	}
 }
 
-func BenchmarkShopspringAdd(b *testing.B) {
-	s, _ := shopspring.NewFromString("0.000001")
-	var d shopspring.Decimal
-
-	for i := 0; i < b.N; i++ {
-		d = d.Add(s)
-	}
-}
-
 func BenchmarkFloat64Add(b *testing.B) {
 	var sf float64 = 0.000001
 	var f float64 = 0
@@ -1472,15 +1427,6 @@ func BenchmarkFloat64Add(b *testing.B) {
 func BenchmarkDecimalMul(b *testing.B) {
 	s, _ := NewFromString("1.00123456789")
 	d := New(123456789, 0)
-
-	for i := 0; i < b.N; i++ {
-		_ = d.Mul(s)
-	}
-}
-
-func BenchmarkShopspringMul(b *testing.B) {
-	s, _ := shopspring.NewFromString("1.00123456789")
-	d, _ := shopspring.NewFromString("123456789")
 
 	for i := 0; i < b.N; i++ {
 		_ = d.Mul(s)
@@ -1505,15 +1451,6 @@ func BenchmarkDecimalDiv(b *testing.B) {
 	}
 }
 
-func BenchmarkShopspringDiv(b *testing.B) {
-	s, _ := shopspring.NewFromString("1.00123456789")
-	d, _ := shopspring.NewFromString("123456789")
-
-	for i := 0; i < b.N; i++ {
-		_ = d.Div(s)
-	}
-}
-
 func BenchmarkFloat64Div(b *testing.B) {
 	var sf float64 = 1.00123456789
 	var f float64 = 123456789
@@ -1532,15 +1469,6 @@ func BenchmarkDecimalQuoRem(b *testing.B) {
 	}
 }
 
-func BenchmarkShopspringQuoRem(b *testing.B) {
-	d1, _ := shopspring.NewFromString("14569568.235")
-	d2, _ := shopspring.NewFromString("56.07988")
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.QuoRem(d2, 0)
-	}
-}
-
 func BenchmarkDecimalRound(b *testing.B) {
 	s, _ := NewFromString("-1.454")
 
@@ -1549,24 +1477,8 @@ func BenchmarkDecimalRound(b *testing.B) {
 	}
 }
 
-func BenchmarkShopspringRound(b *testing.B) {
-	s, _ := shopspring.NewFromString("-1.454")
-
-	for i := 0; i < b.N; i++ {
-		s.Round(1)
-	}
-}
-
 func BenchmarkDecimalRoundCeil(b *testing.B) {
 	s, _ := NewFromString("-1.454")
-
-	for i := 0; i < b.N; i++ {
-		s.RoundCeil(1)
-	}
-}
-
-func BenchmarkShopspringRoundCeil(b *testing.B) {
-	s, _ := shopspring.NewFromString("-1.454")
 
 	for i := 0; i < b.N; i++ {
 		s.RoundCeil(1)
@@ -1582,48 +1494,12 @@ func BenchmarkPublicDecimalAdd(b *testing.B) {
 	}
 }
 
-func BenchmarkPublicShopspringAdd(b *testing.B) {
-	d1 := shopspring.New(551, -2)
-	d2 := shopspring.New(6019, -3)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Add(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesAdd(b *testing.B) {
-	d1, _ := govalues.New(551, -2)
-	d2, _ := govalues.New(6019, -3)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Add(d2)
-	}
-}
-
 func BenchmarkPublicDecimalMul(b *testing.B) {
 	d1 := New(212, -2)
 	d2 := New(31, 1)
 
 	for i := 0; i < b.N; i++ {
 		_ = d1.Mul(d2)
-	}
-}
-
-func BenchmarkPublicShopspringMul(b *testing.B) {
-	d1 := shopspring.New(212, -2)
-	d2 := shopspring.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Mul(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesMul(b *testing.B) {
-	d1, _ := govalues.New(212, -2)
-	d2, _ := govalues.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Mul(d2)
 	}
 }
 
@@ -1636,48 +1512,12 @@ func BenchmarkPublicDecimalInexactQuo(b *testing.B) {
 	}
 }
 
-func BenchmarkPublicShopspringInexactQuo(b *testing.B) {
-	d1 := shopspring.New(212, -2)
-	d2 := shopspring.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Div(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesInexactQuo(b *testing.B) {
-	d1, _ := govalues.New(212, -2)
-	d2, _ := govalues.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Quo(d2)
-	}
-}
-
 func BenchmarkPublicDecimalExactQuo(b *testing.B) {
 	d1 := New(3255, -2)
 	d2 := New(31, 1)
 
 	for i := 0; i < b.N; i++ {
 		_ = d1.Div(d2)
-	}
-}
-
-func BenchmarkPublicShopspringExactQuo(b *testing.B) {
-	d1 := shopspring.New(3255, -2)
-	d2 := shopspring.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Div(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesExactQuo(b *testing.B) {
-	d1, _ := govalues.New(3255, -2)
-	d2, _ := govalues.New(31, 1)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Quo(d2)
 	}
 }
 
@@ -1690,24 +1530,6 @@ func BenchmarkPublicDecimalPow60(b *testing.B) {
 	}
 }
 
-func BenchmarkPublicShopspringPow60(b *testing.B) {
-	d1 := shopspring.New(11, -1)
-	d2 := shopspring.New(60, 0)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Pow(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesPow60(b *testing.B) {
-	d1, _ := govalues.New(11, -1)
-	d2, _ := govalues.New(60, 0)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Pow(d2)
-	}
-}
-
 func BenchmarkPublicDecimalPow600(b *testing.B) {
 	d1 := New(101, -2)
 	d2 := New(600, 0)
@@ -1717,20 +1539,3 @@ func BenchmarkPublicDecimalPow600(b *testing.B) {
 	}
 }
 
-func BenchmarkPublicShopspringPow600(b *testing.B) {
-	d1 := shopspring.New(101, -2)
-	d2 := shopspring.New(600, 0)
-
-	for i := 0; i < b.N; i++ {
-		_ = d1.Pow(d2)
-	}
-}
-
-func BenchmarkPublicGovaluesPow600(b *testing.B) {
-	d1, _ := govalues.New(101, -2)
-	d2, _ := govalues.New(600, 0)
-
-	for i := 0; i < b.N; i++ {
-		_, _ = d1.Pow(d2)
-	}
-}

@@ -135,7 +135,7 @@ func vmeAsDecimal(v, m uint64, e int64) Decimal {
 	}
 }
 
-// Abs returns the absolute value of the decimal
+// Abs returns the absolute value of the decimal.
 func (d Decimal) Abs() Decimal {
 	if d < 0 {
 		return -d
@@ -144,6 +144,7 @@ func (d Decimal) Abs() Decimal {
 	}
 }
 
+// Add returns d1 + d2.
 func (d1 Decimal) Add(d2 Decimal) Decimal {
 	v1, m1, e1 := d1.vme()
 	v2, m2, e2 := d2.vme()
@@ -151,10 +152,12 @@ func (d1 Decimal) Add(d2 Decimal) Decimal {
 	return vmeAsDecimal(vmeAdd(v1, m1, e1, v2, m2, e2))
 }
 
+// Sub returns d1 - d2.
 func (d1 Decimal) Sub(d2 Decimal) Decimal {
 	return d1.Add(-d2)
 }
 
+// Mul returns d1 * d2.
 func (d1 Decimal) Mul(d2 Decimal) Decimal {
 	v1, m1, e1 := d1.vme()
 	v2, m2, e2 := d2.vme()
@@ -162,6 +165,7 @@ func (d1 Decimal) Mul(d2 Decimal) Decimal {
 	return vmeAsDecimal(vmeMul(v1, m1, e1, v2, m2, e2))
 }
 
+// Div returns d1 / d2. If it doesn't divide exactly, the result will have DivisionPrecision digits after the decimal point and loss bit will be set.
 func (d1 Decimal) Div(d2 Decimal) Decimal {
 	v1, m1, e1 := d1.vme()
 	v2, m2, e2 := d2.vme()
@@ -200,6 +204,7 @@ func (d1 Decimal) QuoRem(d2 Decimal, precision int32) (Decimal, Decimal) {
 // Mod returns d1 % d2.
 func (d1 Decimal) Mod(d2 Decimal) Decimal {
 	_, r := d1.QuoRem(d2, 0)
+
 	return r
 }
 
@@ -212,10 +217,9 @@ func (d Decimal) Neg() Decimal {
 	}
 }
 
+// Equal returns whether d1 == d2 without taking care of loss bit. The values Null, Zero, NearZero, NearPositiveZero and NearNegativeZero are equals.
 func (d1 Decimal) Equal(d2 Decimal) bool {
 	d := d1.Sub(d2)
-
-	//log.Printf(`Equal(%v, %v) gives sub as %v (%x) which is %t`, d1, d2, d, uint64(d), d.IsZero())
 
 	return d.IsZero()
 }
@@ -237,27 +241,31 @@ func (d1 Decimal) Compare(d2 Decimal) int {
 	}
 }
 
-// Cmp is an alias of Compare
+// Cmp is a synonym of Compare.
 func (d1 Decimal) Cmp(d2 Decimal) int {
 	return d1.Compare(d2)
 }
 
+// GreaterThan returns true when d1 is greater than d2 (d1 > d2).
 func (d1 Decimal) GreatherThan(d2 Decimal) bool {
 	d := d1.Sub(d2)
 
 	return d.IsPositive()
 }
 
+//  GreaterThanOrEqual returns true when d1 is greater than or equal to d2 (d1 >= d2).
 func (d1 Decimal) GreatherThanOrEqual(d2 Decimal) bool {
 	d := d1.Sub(d2)
 
 	return d.IsPositive() || d.IsZero()
 }
 
+// LessThan returns true when d1 is less than d2 (d1 < d2).
 func (d1 Decimal) LessThan(d2 Decimal) bool {
 	return d2.GreatherThan(d1)
 }
 
+// LessThanOrEqual returns true when d1 is less than or equal to d2 (d1 <= d2).
 func (d1 Decimal) LessThanOrEqual(d2 Decimal) bool {
 	return d2.GreatherThanOrEqual(d1)
 }
@@ -374,7 +382,7 @@ func (d Decimal) IsZero() bool {
 	return d.IsExactlyZero() || d == NearZero || d == -NearZero || d == NearPositiveZero || d == NearNegativeZero
 }
 
-// IsExact return true if a decimal has not lost its precision during computation or conversion.
+// IsExact return true if a decimal has its loss bit not set, ie it has not lost its precision during computation or conversion.
 func (d Decimal) IsExact() bool {
 	return d.Abs()&loss == 0
 }
@@ -438,7 +446,7 @@ func (d Decimal) Sign() int {
 	}
 }
 
-// Int64 returns the integer component of the decimal, this method is an alias of IntPart
+// Int64 returns the integer component of the decimal, this method is a synonym of IntPart
 func (d Decimal) Int64() (i int64) {
 	i, _ = d.IntPartErr()
 
@@ -452,6 +460,7 @@ func (d Decimal) IntPart() (i int64) {
 	return
 }
 
+// IntPartErr return the integer component of the decimal and an eventual out-of-range error of conversion.
 func (d Decimal) IntPartErr() (int64, error) {
 	if d.IsInteger() {
 		if d == Zero {
@@ -579,7 +588,6 @@ func (d Decimal) Ln(precision int32) Decimal {
 }
 
 // Sqrt computes the (possibly rounded) square root of a decimal.
-// d.Sqrt() is significantly faster than d.Pow(0.5).
 //
 // Special cases are:
 //
@@ -842,6 +850,7 @@ func RequireFromString(value string) Decimal {
 	}
 }
 
+// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
 func (d *Decimal) UnmarshalJSON(b []byte) error {
 	if v, m, e, err := vmeFromBytes(b); err == nil {
 		*d = vmeAsDecimal(v, m, e)
@@ -852,6 +861,16 @@ func (d *Decimal) UnmarshalJSON(b []byte) error {
 	}
 }
 
+// String returns the string representation of the decimal with the fixed point.
+//
+// Example:
+//
+//	d := New(-12345, -3)
+//	println(d.String())
+//
+// Output:
+//
+//	-12.345
 func (d Decimal) String() string {
 	if d == Null {
 		return "0"
@@ -859,6 +878,8 @@ func (d Decimal) String() string {
 		return string(d.Bytes())
 	}
 }
+
+// Bytes returns the string representation of the decimal as a slice of byte, but nil if the decimal is Null.
 func (d Decimal) Bytes() (b []byte) {
 	if d == Null {
 		return nil
@@ -870,6 +891,7 @@ func (d Decimal) Bytes() (b []byte) {
 	}
 }
 
+// MarshalJSON implements the json.Marshaler interface.
 func (d Decimal) MarshalJSON() ([]byte, error) {
 	v, m, e := d.vme()
 
@@ -930,8 +952,7 @@ func (d Decimal) MarshalBinary() (data []byte, err error) {
 	return
 }
 
-// UnmarshalText implements the encoding.TextUnmarshaler interface for XML
-// deserialization.
+// UnmarshalText implements the encoding.TextUnmarshaler interface for XML deserialization.
 func (d *Decimal) UnmarshalText(text []byte) error {
 	if _d, err := NewFromBytes(text); err != nil {
 		return err
@@ -942,8 +963,7 @@ func (d *Decimal) UnmarshalText(text []byte) error {
 	}
 }
 
-// MarshalText implements the encoding.TextMarshaler interface for XML
-// serialization.
+// MarshalText implements the encoding.TextMarshaler interface for XML serialization.
 func (d Decimal) MarshalText() (text []byte, err error) {
 	return d.Bytes(), nil
 }

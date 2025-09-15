@@ -22,7 +22,7 @@ Run `go get github.com/shopspring/decimal`
 
 ## Requirements
 
-Decimal library requires Go version `>=1.10`
+Decimal library requires Go version `>=1.13`.
 
 ## Documentation
 
@@ -69,8 +69,8 @@ func main() {
 ## Why this package
 
 This package has been created in 2022 and has been used internally for e-commerce related softwares at Aytechnet like [DyaPi](https://dyapi.io)
-or [Velonomad](https://www.velonomad.com). At this time, almost only [shopspring/decimal] was available.
-I would like a decimal package with `omitempty` friendly interface to [encoding/json] and a small memory usage.
+or [Velonomad](https://www.velonomad.com). At this time, almost only [shopspring/decimal](https://github.com/shopspring/decimal) was available.
+I would like a decimal package with `omitempty` friendly interface to `encoding/json` and a small memory usage.
 
 Since then, much more decimal package alternatives have been made available.
 
@@ -78,4 +78,4 @@ Since then, much more decimal package alternatives have been made available.
 
 The MIT License (MIT)
 
-Some portion code inspired directly from [shopspring.Decimal](https://github.com/shopspring/decimal), which is also release under the MIT Licence.
+Some portion of this code inspired directly from [shopspring.Decimal](https://github.com/shopspring/decimal), which is also released under the MIT Licence.
