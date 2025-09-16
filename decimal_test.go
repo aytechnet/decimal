@@ -18,8 +18,82 @@ func TestDoc(t *testing.T) {
 	}
 }
 
+func TestMantissa(t *testing.T) {
+	var d Decimal
+
+	if d.Mantissa() != 0 {
+		t.Error(`Null.Mantissa() should be 0`)
+	}
+
+	d = d.Add(3)
+	if d.Mantissa() != 3 {
+		t.Error(`3.Mantissa() should be 3`)
+	}
+
+	d = d.Mul(1000)
+	if d.Mantissa() != 3000 {
+		t.Error(`3000.Mantissa() should be 3000`)
+	}
+
+	if Zero.Mantissa() != 0 {
+		t.Error(`Zero.Mantissa() should be 0`)
+	}
+	if NearZero.Mantissa() != 0 {
+		t.Error(`NearZero.Mantissa() should be 0`)
+	}
+	if NearPositiveZero.Mantissa() != 0 {
+		t.Error(`NearPositiveZero.Mantissa() should be 0`)
+	}
+	if NearNegativeZero.Mantissa() != 0 {
+		t.Error(`NearNegativeZero.Mantissa() should be 0`)
+	}
+	if NaN.Mantissa() != 0 {
+		t.Error(`NaN.Mantissa() should be 0`)
+	}
+	if PositiveInfinity.Mantissa() != 0 {
+		t.Error(`Inf.Mantissa() should be 0`)
+	}
+}
+
+func TestExponent(t *testing.T) {
+	var d Decimal
+
+	if d.Exponent() != 0 {
+		t.Error(`Null.Exponent() should be 0`)
+	}
+
+	d = d.Add(3)
+	if d.Exponent() != 0 {
+		t.Error(`3.Exponent() should be 0`)
+	}
+
+	d = d.Mul(1000)
+	if d.Exponent() != 0 {
+		t.Error(`3000.Exponent() should be 0`)
+	}
+
+	if Zero.Exponent() != 0 {
+		t.Error(`Zero.Exponent() should be 0`)
+	}
+	if NearZero.Exponent() != 0 {
+		t.Errorf(`NearZero.Exponent() should be 0 instead of %d`, NearZero.Exponent())
+	}
+	if NearPositiveZero.Exponent() != math.MinInt32 {
+		t.Errorf(`NearPositiveZero.Exponent() should be %d instead of %d`, math.MinInt32, NearPositiveZero.Exponent())
+	}
+	if NearNegativeZero.Exponent() != math.MinInt32 {
+		t.Errorf(`NearNegativeZero.Exponent() should be %d instead of %d`, math.MinInt32, NearNegativeZero.Exponent())
+	}
+	if PositiveInfinity.Exponent() != math.MaxInt32 {
+		t.Errorf(`PositiveInfinity.Exponent() should be %d instead of %d`, math.MaxInt32, PositiveInfinity.Exponent())
+	}
+	if NegativeInfinity.Exponent() != math.MaxInt32 {
+		t.Errorf(`NegativeInfinity.Exponent() should be %d instead of %d`, math.MaxInt32, NegativeInfinity.Exponent())
+	}
+}
+
 func TestNull(t *testing.T) {
-	var d Decimal = Null
+	var d Decimal
 
 	if !d.IsNull() {
 		t.Error(`Null.IsNull() = false`)

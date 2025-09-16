@@ -1,7 +1,6 @@
 package decimal
 
 import (
-	// "log"
 	"bytes"
 	"math"
 	"math/bits"
@@ -21,9 +20,9 @@ var ten_pow = [...]uint64{
 	1000000000000000, 10000000000000000, 100000000000000000, 1000000000000000000, 10000000000000000000,
 }
 
-// normalize a VME tuple according to maximal value of mantissa, minimal and maximal value of exposant
-// normalize always try to hold an integerer value into mantissa so that exposant is 0 if possible
-// if it is not possible to hold as an integer, normalize it so that mantissa is not divisible by 10 unless exposant is out of range
+// normalize a VME tuple according to maximal value of mantissa, minimal and maximal value of exponent
+// normalize always try to hold an integerer value into mantissa so that exponent is 0 if possible
+// if it is not possible to hold as an integer, normalize it so that mantissa is not divisible by 10 unless exponent is out of range
 // this make possible to use a decimal as a hash key and use == or != operators (it is still not possible to use < or > operator)
 // example :
 //
@@ -51,7 +50,7 @@ func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint6
 		return veNormalizeMagic(v, e, min_e, max_e)
 	} else {
 		// check if an decimal can be represented as a compatible int64 value
-		// it is possible ony if loss bit is not set and exposant is in acceptable range
+		// it is possible ony if loss bit is not set and exponent is in acceptable range
 		if v&loss == 0 {
 			if e == 0 {
 				if m <= max_m {
@@ -80,6 +79,7 @@ func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint6
 		for m > max_m || e <= max_e && m > 9 && m&1 == 0 {
 			q, r := bits.Div64(0, m, 10)
 			if r != 0 {
+				// division tried has reminder, if mantissa was in acceptable range ignore division.
 				if m <= max_m {
 					break
 				}
@@ -96,12 +96,12 @@ func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint6
 			e++
 		}
 
-		return vmeNormalizeExposant(v, m, e, max_m, min_e, max_e)
+		return vmeNormalizeExponent(v, m, e, max_m, min_e, max_e)
 	}
 }
 
-func vmeNormalizeExposant(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint64, uint64, int64) {
-	// normalize too small exposant by updating mantissa and adding if necessary a precision loss
+func vmeNormalizeExponent(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint64, uint64, int64) {
+	// normalize too small exponent by updating mantissa and adding if necessary a precision loss
 	if e < min_e {
 		if min_e-e < int64(len(ten_pow)) {
 			var r uint64
@@ -125,7 +125,7 @@ func vmeNormalizeExposant(v, m uint64, e int64, max_m uint64, min_e, max_e int64
 		e = min_e
 	}
 
-	// normalize too big exposant
+	// normalize too big exponent
 	if e > max_e {
 		if e-max_e < int64(len(ten_pow)) {
 			h, l := bits.Mul64(m, ten_pow[e-max_e])
@@ -160,7 +160,6 @@ func veNormalizeMagic(v uint64, e int64, min_e, max_e int64) (uint64, uint64, in
 			e = min_e
 		} else if e > max_e {
 			e = max_e
-			//log.Printf("  -> vme is normalized as (0x%016x,%v,%v)\n", v, m, e)
 		}
 	}
 
@@ -208,7 +207,8 @@ func vmhmeReduce(v, mh, m uint64, e int64) (uint64, uint64, int64) {
 		if r != 0 {
 			v |= loss
 		}
-		mh, m = 0, q
+		mh = 0
+		m = q
 
 		e += 1 + int64(i)
 	}
@@ -350,7 +350,6 @@ func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
 		}
 	}
 
-	//log.Printf("vmeFromBytes(%s) = (v=0x%016x,m=%d,e=%d)", b, v, m, e)
 	// FIXME: NaN does not occurs here, so fix v and e to avoid NaN report
 	if m == 0 {
 		if v&loss != 0 {
@@ -425,7 +424,6 @@ func vmeBytes(b []byte, v, m uint64, e int64, ext, str bool) []byte {
 		b = append(b, '"')
 	}
 
-	//log.Printf(`bytes(0x%016x, %d, %d) = "%s"`, v, m, e, b)
 	return b
 }
 
@@ -483,7 +481,6 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 				// FIXME: return d1 is d2 is null
 				return v1, 0, e1
 			} else {
-				//log.Printf("AddMagic() returns 0x%016x, %v, %v", v2 | loss, m2, e2)
 				return v2 | loss, m2, e2
 			}
 		}
@@ -519,10 +516,8 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	// handle magic of d1
 	if m1 == 0 {
 		if v1&loss != 0 {
-			//log.Printf("<< addMagic(0x%016x,%d, 0x%016x,%d,%d)", v1,e1, v2,m2,e2)
 			return vmeAddMagic1(v1, e1, v2, m2, e2)
 		} else { // d1 == 0 (because loss is not set)
-			//log.Printf(">> add(0x%016x,%d,%d, 0x%016x,%d,%d) = (0x%016x,%d,%d)", v1,m1,e1, v2,m2,e2, v2,m2,e2)
 			return v2, m2, e2
 		}
 	}
@@ -530,10 +525,8 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	// handle magic of d2
 	if m2 == 0 {
 		if v2&loss != 0 {
-			//log.Printf("<< addMagic(0x%016x,%d, 0x%016x,%d,%d)", v2,e2, v1,m1,e1)
 			return vmeAddMagic1(v2, e2, v1, m1, e1)
 		} else { // d2 == 0 (because loss is not set)
-			//log.Printf(">> add(0x%016x,%d,%d, 0x%016x,%d,%d) = (0x%016x,%d,%d)", v1,m1,e1, v2,m2,e2, v1,m1,e1)
 			return v1, m1, e1
 		}
 	}
@@ -545,9 +538,6 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 			h2, l2 := bits.Mul64(m2, ten_pow[e2-e1])
 
 			if h2 != 0 {
-				//log.Printf("too big add(0x%016x,%d,%d, 0x%016x,%d,%d) uses h2,l2 = %d,%d from Mul64(%d, %d (using 10^%d))", v1,m1,e1, v2,m2,e2, h2,l2, m2, ten_pow[e2-e1], e2-e1)
-				//log.Printf("m2 = %d is now h2 = %d, l2 = %d is increased by %d digits", m2, h2, l2, e2-e1)
-
 				// reduce precision so that h2, l2 is divided by p=10 ^ i appropriate so that h2 < p
 				// do the same with m1 as well, so that e is updated accordingly
 
@@ -589,7 +579,6 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 						if r2 != 0 || r1 != 0 {
 							v |= loss
 						}
-						//log.Printf("reducing precision by %d digits (%d), m1 = %d is now %d, m2 = h2/l2 (%d/%d) is now %d", k, p, m1, q1, h2, l2, q2)
 						m2 = q2
 						m1 = q1
 						e += int64(k)
@@ -629,7 +618,6 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 		e = 0
 	}
 
-	//log.Printf(">> add(0x%016x,%d,%d, 0x%016x,%d,%d) = (0x%016x,%d,%d)", v1,m1,e1, v2,m2,e2, v,m,e)
 	return
 }
 

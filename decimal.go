@@ -1,7 +1,6 @@
 package decimal
 
 import (
-	// log"
 	"errors"
 
 	"database/sql/driver"
@@ -37,7 +36,7 @@ const (
 	// Null is seen as 0 for any operation
 	Null = 0
 
-	// MaxInt constant is the maximal int64 value that can be safely saved as Decimal with exposant still 0.
+	// MaxInt constant is the maximal int64 value that can be safely saved as Decimal with exponent still 0.
 	// MaxInt is as well the maximum value of mantissa of Decimal and the bitmask to extract mantissa value of a Decimal.
 	MaxInt = 0x01ffffffffffffff
 
@@ -84,7 +83,39 @@ var (
 	DivisionPrecision = 16
 )
 
-// internal function to extract decimal into VME tuple : Value of sign, loss and possibly type, Mantissa and Exposant
+// Mantissa returns the mantissa of the decimal.
+func (d Decimal) Mantissa() int64 {
+	if d < 0 {
+		return int64(-d) & MaxInt
+	} else {
+		return int64(d) & MaxInt
+	}
+}
+
+// Exponent returns the exponent, or scale component of the decimal.
+func (d Decimal) Exponent() int32 {
+	var u uint64
+
+	if d < 0 {
+		u = uint64(-d)
+	} else {
+		u = uint64(d)
+	}
+
+	e := int64((u&decimal_e_bitmask)<<2) >> (2 + decimal_bit_e) // e is now fully signed exponent
+
+	if u&MaxInt == 0 {
+		if e == decimal_min_e {
+			return math.MinInt32
+		} else if e == decimal_max_e {
+			return math.MaxInt32
+		}
+	}
+
+	return int32(e)
+}
+
+// internal function to extract decimal into VME tuple : Value of sign, loss and possibly type, Mantissa and Exponent
 func (d Decimal) vme() (v, m uint64, e int64) {
 	var u uint64
 
@@ -96,7 +127,7 @@ func (d Decimal) vme() (v, m uint64, e int64) {
 		v = u & loss
 	}
 
-	e = int64((u&decimal_e_bitmask)<<2) >> (2 + decimal_bit_e) // e is now fully signed exposant
+	e = int64((u&decimal_e_bitmask)<<2) >> (2 + decimal_bit_e) // e is now fully signed exponent
 
 	m = u & MaxInt
 
@@ -112,7 +143,7 @@ func (d Decimal) vme() (v, m uint64, e int64) {
 	return
 }
 
-// internal function to define a decimal from a VME tuple : Value of sign, loss and possibly type, Mantissa and Exposant
+// internal function to define a decimal from a VME tuple : Value of sign, loss and possibly type, Mantissa and Exponent
 func vmeAsDecimal(v, m uint64, e int64) Decimal {
 	// FIXME: handle special case for null and zero
 	if m == 0 && v&loss == 0 {
