@@ -107,6 +107,12 @@ func TestNull(t *testing.T) {
 	if d.IfNull(3) != 3 {
 		t.Error(`Null.IfNull(3) return bad value`)
 	}
+	if d.Bytes() != nil {
+		t.Error(`Null.String() should be '0'`)
+	}
+	if d.String() != "0" {
+		t.Error(`Null.String() should be '0'`)
+	}
 
 	if !Zero.IsSet() {
 		t.Error(`Zero.IsSet() = false`)
@@ -312,6 +318,10 @@ func TestIntPartErr(t *testing.T) {
 		t.Errorf(`d.IntPartErr() does not return error with out of range integer conversion d = %v, d.IntPartErr() = %v`, d, i)
 	}
 
+	if i, err := d.Neg().IntPartErr(); err == nil {
+		t.Errorf(`-d.IntPartErr() does not return error with out of range integer conversion d = %v, d.IntPartErr() = %v`, d, i)
+	}
+
 	d = PositiveInfinity
 	if i, err := d.IntPartErr(); err == nil {
 		t.Errorf(`d.IntPartErr() does not return error with out of range integer conversion d = %v, d.IntPartErr() = %v`, d, i)
@@ -325,6 +335,13 @@ func TestIntPartErr(t *testing.T) {
 	d = NaN
 	if i, err := d.IntPartErr(); err == nil {
 		t.Errorf(`d.IntPartErr() does not return error with out of range integer conversion d = %v, d.IntPartErr() = %v`, d, i)
+	}
+
+	d = NearZero.Add(123) // ~123
+	if i, err := d.IntPartErr(); err != nil {
+		t.Errorf(`d.IntPartErr() does return error with valid input of d = %v, d.IntPartErr() = %v`, d, i)
+	} else if i != 123 {
+		t.Errorf(`d.IntPartErr() should be equal to 123 with d = %v, d.IntPartErr() = %v`, d, i)
 	}
 }
 
@@ -514,8 +531,21 @@ func TestNewFromInt(t *testing.T) {
 		t.Errorf(`NewFromInt32(42) should be 42, d = %v`, d)
 	}
 
-	if d := NewFromInt(MaxInt+1); !d.Div(10).Equal((MaxInt+1)/10) {
-		t.Errorf(`NewFromInt(%d) should be %d, d = %v`, MaxInt+1, MaxInt+1, d)
+	d := NewFromInt(MaxInt+1)
+
+	if d.IsExact() {
+		t.Errorf(`NewFromInt(%d) should not be exact, d = %v`, MaxInt+1, d)
+	}
+	if _d := d.IntPart(); !d.Div(10).Equal(NewFromInt(_d/10)) {
+		t.Errorf(`%v/10 should be equal to %d, d/10 = %v`, d, (MaxInt+1)/10, d.Div(10))
+	}
+	if _d := d.Neg().IntPart(); !d.Neg().Div(10).Equal(NewFromInt(_d/10)) {
+		t.Errorf(`%v/10 should be equal to %d, d/10 = %v`, d, (MaxInt+1)/10, d.Div(10))
+	}
+
+	ud := NewFromUint64(MaxInt+1)
+	if !ud.Equal(d) {
+		t.Errorf(`NewFromUint64(%d) should be equal to %v, but is %v`, MaxInt+1, d, ud)
 	}
 }
 
@@ -713,8 +743,18 @@ func TestNewNegativeInfiniteFromString(t *testing.T) {
 }
 
 func TestNewFromStringErrors(t *testing.T) {
-	errs := [...]string{"0.a", ".123e--19", "azerty", "-mCF", "-+23", "-~", "-+", "+-", "~+", "12.3.4"}
+	errs := [...]string{"0.a", ".123e--19", "azerty", "-mCF", "-+23", "23-", "44+", "-~", "-+", "+-", "~+", "~", "12~", "12.3.4"}
 	for _, s := range errs {
+		var d Decimal
+
+		if err := d.UnmarshalJSON([]byte(s)); err == nil {
+			t.Errorf(`UnmarhalJSON("%s") returns no error`, s)
+		}
+
+		if err := d.UnmarshalText([]byte(s)); err == nil {
+			t.Errorf(`UnmarhalText("%s") returns no error`, s)
+		}
+
 		if _, err := NewFromString(s); err == nil {
 			t.Errorf(`NewFromString("%s") returns no error`, s)
 		}
