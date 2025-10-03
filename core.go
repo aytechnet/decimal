@@ -160,6 +160,8 @@ func veNormalizeMagic(v uint64, e int64, min_e, max_e int64) (uint64, uint64, in
 			e = min_e
 		} else if e > max_e {
 			e = max_e
+		} else if e == 0 {
+			v |= sign
 		}
 	}
 
@@ -207,7 +209,6 @@ func vmhmeReduce(v, mh, m uint64, e int64) (uint64, uint64, int64) {
 		if r != 0 {
 			v |= loss
 		}
-		mh = 0
 		m = q
 
 		e += 1 + int64(i)
@@ -477,8 +478,8 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 				return v2, m2, e2 // NaN or +Inf or -Inf
 			}
 		} else {
-			if v2 == 0 && m2 == 0 && e2 == 0 {
-				// FIXME: return d1 is d2 is null
+			if v2|sign == sign && m2 == 0 && e2 == 0 {
+				// FIXME: return d1 is d2 is null or zero
 				return v1, 0, e1
 			} else {
 				return v2 | loss, m2, e2
@@ -661,7 +662,7 @@ func vmeMulMagic1(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64
 		// so check if d2 is NaN or too close to zero
 		if m2 == 0 {
 			if v2&loss != 0 {
-				if e2 != 0 && e2 != math.MaxInt64 {
+				if e2 == 0 || e2 != math.MaxInt64 {
 					// d2 is too close to 0 or NaN
 					return loss, 0, 1 // return NaN
 				}

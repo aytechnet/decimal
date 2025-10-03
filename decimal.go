@@ -255,7 +255,7 @@ func (d1 Decimal) Equal(d2 Decimal) bool {
 	return d.IsZero()
 }
 
-// Compare compares the numbers represented by d1 and d2 and returns:
+// Compare compares the numbers represented by d1 and d2 without taking into account lost precision and returns:
 //
 //	-1 if d1 <  d2
 //	 0 if d1 == d2
@@ -418,7 +418,7 @@ func (d Decimal) IsExact() bool {
 	return d.Abs()&loss == 0
 }
 
-// IsInteger return true only if d is zero or can be safely cast as int64
+// IsInteger return true only if d is zero or can be safely casted as int64
 func (d Decimal) IsInteger() bool {
 	return ^uint64(sign|MaxInt)&uint64(d.Abs()) == 0
 }

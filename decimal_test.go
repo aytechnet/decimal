@@ -98,6 +98,9 @@ func TestNull(t *testing.T) {
 	if !d.IsNull() {
 		t.Error(`Null.IsNull() = false`)
 	}
+	if !d.IsInteger() {
+		t.Error(`Null.IsInteger() = false`)
+	}
 	if d.IfNull(3) != 3 {
 		t.Error(`Null.IfNull(3) return bad value`)
 	}
@@ -111,6 +114,9 @@ func TestNull(t *testing.T) {
 
 	if NearZero.IsNull() {
 		t.Error(`NearZero.IsNull() = true`)
+	}
+	if NearZero.IsInteger() {
+		t.Error(`(~0).IsInteger() = true`)
 	}
 	if NearPositiveZero.IsNull() {
 		t.Error(`NearZero.IsNull() = true`)
@@ -154,7 +160,10 @@ func TestIsZero(t *testing.T) {
 	d = Zero
 
 	if !d.IsZero() {
-		t.Error(`d.IsZero() = false with d set to Zero`)
+		t.Error(`Zero.IsZero() = false`)
+	}
+	if !d.IsInteger() {
+		t.Error(`Zero.IsInteger() = false`)
 	}
 
 	if d.IsNaN() {
@@ -165,9 +174,20 @@ func TestIsZero(t *testing.T) {
 	if d.IsZero() {
 		t.Error(`d.IsZero() = true with d set to 1`)
 	}
+	if !d.IsInteger() {
+		t.Error(`1.IsInteger() = false`)
+	}
+	if !(-d).IsInteger() {
+		t.Error(`-1.IsInteger() = false`)
+	}
 
 	if d.IsNaN() {
 		t.Error(`d.IsNaN() = true with d set to 1`)
+	}
+
+	d = d.Div(10)
+	if d.String() != "0.1" {
+		t.Errorf(`d.Div(10) = %v and should be equal to 0.1`, d)
 	}
 
 	if d, err := NewFromString(`"0"`); err != nil {
@@ -579,7 +599,7 @@ func TestNewOneOrOnOrYesFromString(t *testing.T) {
 }
 
 func TestNewPositiveInfiniteFromString(t *testing.T) {
-	infs := [...]string{"inf", "inF", "iNf", "iNF", "Inf", "InF", "INf", "INF", "+inf", "+inF", "+iNf", "+iNF", "+Inf", "+InF", "+INf", "+INF", "1E1000"}
+	infs := [...]string{"inf", "inF", "iNf", "iNF", "Inf", "InF", "INf", "INF", "+inf", "+inF", "+iNf", "+iNF", "+Inf", "+InF", "+INf", "+INF", "1E1000", "123456789012345678901234567890123456789"}
 	for _, s := range infs {
 		if d, err := NewFromString(s); err != nil {
 			t.Errorf(`NewFromString("%s") returns err = %s`, s, err)
@@ -637,7 +657,7 @@ func TestNewNegativeInfiniteFromString(t *testing.T) {
 }
 
 func TestNewFromStringErrors(t *testing.T) {
-	errs := [...]string{"0.a", ".123e--19", "azerty", "-mCF", "-+23"}
+	errs := [...]string{"0.a", ".123e--19", "azerty", "-mCF", "-+23", "-~", "-+", "+-", "~+", "12.3.4"}
 	for _, s := range errs {
 		if _, err := NewFromString(s); err == nil {
 			t.Errorf(`NewFromString("%s") returns no error`, s)
@@ -913,6 +933,11 @@ func TestAdd(t *testing.T) {
 		t.Errorf(`d-d1 = %v and should be equal to d2, d == d2 is %t`, d, d == d2)
 	}
 
+	d = d.Add(d2.Neg())
+	if d != Zero {
+		t.Errorf(`d+(-d2) = %v and should be equal to 0`, d)
+	}
+
 	d = New(1, 18) // d is now too big to be a real integer
 	d1 = d.Add(1)  // d1 is now approximate of d
 	d2 = d1.Sub(1) // d2 is still approximate of d
@@ -933,6 +958,10 @@ func TestAdd(t *testing.T) {
 	}
 	if !d.Equal(d2) {
 		t.Errorf("addition should have been approximative:\n   d = %v\n d1 = %v\n d2 = %v", d, d1, d2)
+	}
+
+	if d.Mantissa() != 1000000000000000 {
+		t.Errorf("mantissa of 10^30 should not be 1 to fit in decimal poor range of exponent, mantissa = %v", d.Mantissa())
 	}
 
 }
@@ -967,6 +996,20 @@ func TestAddMagicZeros(t *testing.T) {
 	d4 := d1.Add(NearNegativeZero)
 	if d4.String() != "~123.456" || d4 != d2 {
 		t.Errorf(`123.456 + ~-0 has result = %v`, d4)
+	}
+
+	d4 = NearZero.Sub(NearZero)
+	if d4 != NearZero {
+		t.Errorf(`~0 - ~0 has result = %v (%x)`, d4, uint64(d4))
+	}
+
+	d5 := PositiveInfinity.Add(d4)
+	if d5 != PositiveInfinity {
+		t.Errorf(`+Inf + ~0 has result = %v (%x)`, d4, uint64(d4))
+	}
+	d5 = NaN.Add(d4)
+	if !d5.IsNaN() {
+		t.Errorf(`NaN + ~0 has result = %v (%x)`, d4, uint64(d4))
 	}
 }
 
@@ -1028,6 +1071,15 @@ func TestMulMagic(t *testing.T) {
 		t.Errorf(`123.456 * ~-0 has result = %v`, d4)
 	}
 
+	d5 := d1.Mul(NaN)
+	if !d5.IsNaN() {
+		t.Errorf(`123.456 * NaN has result = %v`, d5)
+	}
+}
+
+func TestMulInfinity(t *testing.T) {
+	d1 := New(123456, -3)
+
 	d5 := d1.Mul(PositiveInfinity)
 	if d5 != PositiveInfinity {
 		t.Errorf(`123.456 * +Inf has result = %v`, d5)
@@ -1038,9 +1090,14 @@ func TestMulMagic(t *testing.T) {
 		t.Errorf(`123.456 + -Inf has result = %v`, d6)
 	}
 
-	d7 := d1.Mul(NaN)
-	if !d7.IsNaN() {
-		t.Errorf(`123.456 * NaN has result = %v`, d7)
+	if !d5.Mul(NearZero).IsNaN() {
+		t.Errorf(`%v * %v has result = %v`, d5, NearZero, d5.Mul(NearZero))
+	}
+	if !d5.Mul(NearPositiveZero).IsNaN() {
+		t.Errorf(`%v * %v has result = %v`, d5, NearPositiveZero, d5.Mul(NearPositiveZero))
+	}
+	if !d5.Mul(NearNegativeZero).IsNaN() {
+		t.Errorf(`%v * %v has result = %v`, d5, NearNegativeZero, d5.Mul(NearNegativeZero))
 	}
 
 	if d5.Mul(PositiveInfinity) != d5 {
@@ -1103,6 +1160,13 @@ func TestMul(t *testing.T) {
 	if d2 != 142661179412894376 {
 		t.Errorf("big number not correctly seen, d2 = %v", d2)
 	}
+	if d2.Mul(Zero) != Zero {
+		t.Errorf("%v * 0 = %v", d2, d2.Mul(Zero))
+	}
+	if d2.Mul(d2) != PositiveInfinity {
+		t.Errorf("%v * 0 = %v", d2, d2.Mul(d2))
+	}
+
 }
 
 func TestQuoRem(t *testing.T) {
@@ -1148,6 +1212,78 @@ func TestQuoRem(t *testing.T) {
 	log.Printf("%v = %v * %v, remainder = %v", d1, d2, q, r)
 }
 
+func TestMod(t *testing.T) {
+	d1 := NewFromInt(4)
+	d2 := NewFromInt(3)
+	r := d1.Mod(d2)
+	if r != 1 {
+		t.Errorf("4.Mod(3) should be equal to 1 but rem = %v", r)
+	}
+}
+
+func TestNeg(t *testing.T) {
+	d := NewFromInt(4)
+	if d.Neg() != -4 {
+		t.Errorf("4.Neg() should be equal to -4 but = %v", d.Neg())
+	}
+
+	for _, d := range []Decimal{0, Zero, NearZero} {
+		if d.Neg() != d {
+			t.Errorf("%v.Neg() should be equal to %v but = %v", d, d, d.Neg())
+		}
+	}
+
+	if NearPositiveZero.Neg() != NearNegativeZero {
+		t.Errorf("~+0.Neg() should be equal to -~0 but = %v", NearPositiveZero.Neg())
+	}
+	if NearNegativeZero.Neg() != NearPositiveZero {
+		t.Errorf("~+0.Neg() should be equal to -~0 but = %v", NearNegativeZero.Neg())
+	}
+}
+
+func TestCompare(t *testing.T) {
+	zeros := [...]Decimal{0, Zero, NearZero, NearPositiveZero, NearNegativeZero}
+	for _, d1 := range zeros {
+		for _, d2 := range zeros {
+			if d1.Cmp(d2) != 0 {
+				t.Errorf("%v.Cmp(%v) should be equal to 0 but = %v", d1, d2, d1.Cmp(d2))
+			}
+			if d1.Cmp(d2.Add(1)) != -1 {
+				t.Errorf("%v.Cmp(%v) should be equal to -1 but = %v", d1, d2.Add(1), d1.Cmp(d2.Add(1)))
+			}
+			if d1.Cmp(d2.Sub(1)) != 1 {
+				t.Errorf("%v.Cmp(%v) should be equal to 1 but = %v", d1, d2.Sub(1), d1.Cmp(d2.Sub(1)))
+			}
+
+			if d1.Compare(d2) != 0 {
+				t.Errorf("%v.Compare(%v) should be equal to 0 but = %v", d1, d2, d1.Compare(d2))
+			}
+			if d1.Compare(d2.Add(1)) != -1 {
+				t.Errorf("%v.Compare(%v) should be equal to -1 but = %v", d1, d2.Add(1), d1.Compare(d2.Add(1)))
+			}
+			if d1.Compare(d2.Sub(1)) != 1 {
+				t.Errorf("%v.Compare(%v) should be equal to 1 but = %v", d1, d2.Sub(1), d1.Compare(d2.Sub(1)))
+			}
+		}
+	}
+}
+func TestGreatherThan(t *testing.T) {
+	for _, d1 := range [...]Decimal{0, Zero} {
+		if d2 := Zero; d1.GreatherThan(d2) {
+			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		}
+		if d2 := NearZero; d1.GreatherThan(d2) {
+			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		}
+		if d2 := NearPositiveZero; d1.GreatherThan(d2) {
+			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		}
+		if d2 := NearNegativeZero; !d1.GreatherThan(d2) {
+			t.Errorf("%v.GreatherThan(%v) should be true but = %v", d1, d2, d1.GreatherThan(d2))
+		}
+	}
+}
+
 func TestBigNumber(t *testing.T) {
 	d1 := New(144115188075855871, 2)
 	d2 := d1.Mul(d1)
@@ -1157,7 +1293,7 @@ func TestBigNumber(t *testing.T) {
 	}
 }
 
-func TestDiv1_3(t *testing.T) {
+func TestDiv(t *testing.T) {
 	d1 := New(1, 0)
 	d2 := NewFromInt(2)
 	d3 := NewFromInt32(3)
@@ -1196,6 +1332,51 @@ func TestDiv1_3(t *testing.T) {
 	}
 	if z := d.Sub(2).Div(NearNegativeZero); !z.IsNaN() {
 		t.Errorf(`0/~+0 = %v and should be nan`, z)
+	}
+}
+
+func TestDivMagic(t *testing.T) {
+	d := New(1, 0)
+
+	if z := d.Div(Zero); !z.IsNaN() {
+		t.Errorf(`%v/0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearZero); !z.IsNaN() {
+		t.Errorf(`%v/~0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearPositiveZero); z != PositiveInfinity {
+		t.Errorf(`%v/~+0 = %v and should be +Inf`, d, z)
+	}
+	if z := d.Div(NearNegativeZero); z != NegativeInfinity {
+		t.Errorf(`%v/~-0 = %v and should be -Inf`, d, z)
+	}
+
+	d = Zero
+	if z := d.Div(Zero); !z.IsNaN() {
+		t.Errorf(`%v/0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearZero); !z.IsNaN() {
+		t.Errorf(`%v/~0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearPositiveZero); !z.IsNaN() {
+		t.Errorf(`%v/~+0 = %v and should be +Inf`, d, z)
+	}
+	if z := d.Div(NearNegativeZero); !z.IsNaN() {
+		t.Errorf(`%v/~-0 = %v and should be -Inf`, d, z)
+	}
+
+	d = NearZero
+	if z := d.Div(Zero); !z.IsNaN() {
+		t.Errorf(`%v/0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearZero); !z.IsNaN() {
+		t.Errorf(`%v/~0 = %v and should be nan`, d, z)
+	}
+	if z := d.Div(NearPositiveZero); !z.IsNaN() {
+		t.Errorf(`%v/~+0 = %v and should be +Inf`, d, z)
+	}
+	if z := d.Div(NearNegativeZero); !z.IsNaN() {
+		t.Errorf(`%v/~-0 = %v and should be -Inf`, d, z)
 	}
 }
 
