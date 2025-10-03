@@ -538,19 +538,19 @@ func TestNewFromInt(t *testing.T) {
 		t.Errorf(`(~-432).IntPart() should be -432, d = %v`, d)
 	}
 
-	d = NewFromInt(MaxInt+1)
+	d = NewFromInt(MaxInt + 1)
 
 	if d.IsExact() {
 		t.Errorf(`NewFromInt(%d) should not be exact, d = %v`, MaxInt+1, d)
 	}
-	if _d := d.IntPart(); !d.Div(10).Equal(NewFromInt(_d/10)) {
+	if _d := d.IntPart(); !d.Div(10).Equal(NewFromInt(_d / 10)) {
 		t.Errorf(`%v/10 should be equal to %d, d/10 = %v`, d, (MaxInt+1)/10, d.Div(10))
 	}
-	if _d := d.Neg().IntPart(); !d.Neg().Div(10).Equal(NewFromInt(_d/10)) {
+	if _d := d.Neg().IntPart(); !d.Neg().Div(10).Equal(NewFromInt(_d / 10)) {
 		t.Errorf(`%v/10 should be equal to %d, d/10 = %v`, d, (MaxInt+1)/10, d.Div(10))
 	}
 
-	ud := NewFromUint64(MaxInt+1)
+	ud := NewFromUint64(MaxInt + 1)
 	if !ud.Equal(d) {
 		t.Errorf(`NewFromUint64(%d) should be equal to %v, but is %v`, MaxInt+1, d, ud)
 	}
@@ -1761,7 +1761,7 @@ func TestTextJSONMarshaling(t *testing.T) {
 		t.Errorf(`(%v).MarshalJSON() should be '123.456', buff = '%s'`, d, b)
 	}
 
-	for _, b := range []string{`456.123`, `"456.123"`, } {
+	for _, b := range []string{`456.123`, `"456.123"`} {
 		if err := d.UnmarshalText([]byte(b)); err != nil {
 			t.Errorf(`().UnmarshalText(%s) should be ok, error = %v`, b, err)
 		} else if d != New(456123, -3) {
