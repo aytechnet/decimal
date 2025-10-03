@@ -5,7 +5,7 @@
 [![Go Coverage](https://img.shields.io/codecov/c/github/aytechnet/decimal/main?color=brightcolor)](https://codecov.io/gh/aytechnet/decimal)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aytechnet/decimal)](https://goreportcard.com/report/github.com/aytechnet/decimal)
 
-High performance, zero-allocation, low precision (17 digits), partially compatible with int64 and [shopspring/decimal](https://github.com/shopspring/decimal)
+High performance, zero-allocation, low memory usage (8 bytes), low precision (17 digits), partially compatible with int64 and [shopspring/decimal](https://github.com/shopspring/decimal)
 
 ## Features
 

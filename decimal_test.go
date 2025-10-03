@@ -113,7 +113,9 @@ func TestNull(t *testing.T) {
 	if d.String() != "0" {
 		t.Error(`Null.String() should be '0'`)
 	}
+}
 
+func TestZero(t *testing.T) {
 	if !Zero.IsSet() {
 		t.Error(`Zero.IsSet() = false`)
 	}
@@ -137,7 +139,7 @@ func TestNull(t *testing.T) {
 		t.Error(`NearZero.IsNull() = true`)
 	}
 
-	d = 3
+	var d Decimal = 3
 	if d.IsNull() {
 		t.Error(`3.IsNull() = true`)
 	}
@@ -511,8 +513,8 @@ func TestNewFromInt(t *testing.T) {
 		t.Errorf(`NewFromInt(0) should be Zero, d = %v`, d)
 	}
 
-	if d := NewFromInt(42); d != 42 {
-		t.Errorf(`NewFromInt(42) should be 42, d = %v`, d)
+	if d := NewFromInt(-42); d != -42 {
+		t.Errorf(`NewFromInt(-42) should be -42, d = %v`, d)
 	}
 
 	if d := NewFromUint64(0); d != Zero {
@@ -531,7 +533,12 @@ func TestNewFromInt(t *testing.T) {
 		t.Errorf(`NewFromInt32(42) should be 42, d = %v`, d)
 	}
 
-	d := NewFromInt(MaxInt+1)
+	d := NewFromInt(-432).Add(NearZero)
+	if _d := d.IntPart(); _d != -432 {
+		t.Errorf(`(~-432).IntPart() should be -432, d = %v`, d)
+	}
+
+	d = NewFromInt(MaxInt+1)
 
 	if d.IsExact() {
 		t.Errorf(`NewFromInt(%d) should not be exact, d = %v`, MaxInt+1, d)
@@ -1585,7 +1592,23 @@ func TestSumAvg(t *testing.T) {
 }
 
 func TestIntConversion(t *testing.T) {
-	d := NewFromInt(45712)
+	var d Decimal
+
+	if i, err := d.IntPartErr(); err != nil {
+		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
+	} else if i != 0 {
+		t.Errorf(`.IntPartErr(...) returned non zero != %v`, i)
+	}
+
+	d = Zero
+
+	if i, err := d.IntPartErr(); err != nil {
+		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
+	} else if i != 0 {
+		t.Errorf(`.IntPartErr(...) returned non zero != %v`, i)
+	}
+
+	d = NewFromInt(45712)
 
 	if i, err := d.IntPartErr(); err != nil {
 		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
