@@ -95,6 +95,9 @@ func TestExponent(t *testing.T) {
 func TestNull(t *testing.T) {
 	var d Decimal
 
+	if d.IsSet() {
+		t.Error(`Null.IsSet() = true`)
+	}
 	if !d.IsNull() {
 		t.Error(`Null.IsNull() = false`)
 	}
@@ -105,6 +108,9 @@ func TestNull(t *testing.T) {
 		t.Error(`Null.IfNull(3) return bad value`)
 	}
 
+	if !Zero.IsSet() {
+		t.Error(`Zero.IsSet() = false`)
+	}
 	if Zero.IsNull() {
 		t.Error(`Zero.IsNull() = true`)
 	}
@@ -129,13 +135,24 @@ func TestNull(t *testing.T) {
 	if d.IsNull() {
 		t.Error(`3.IsNull() = true`)
 	}
+	if d.IsInfinite() {
+		t.Error(`3.IsInfinite() = true`)
+	}
+}
 
-	d = PositiveInfinity
+func TestMagic(t *testing.T) {
+	d := PositiveInfinity
+	if !d.IsInfinite() {
+		t.Error(`+Inf.IsInfinite() = false`)
+	}
 	if d.IsNull() {
-		t.Error(`3.IsNull() = true`)
+		t.Error(`+Inf.IsNull() = true`)
 	}
 
 	d = NegativeInfinity
+	if !d.IsInfinite() {
+		t.Error(`-Inf.IsInfinite() = false`)
+	}
 	if d.IsNull() {
 		t.Error(`3.IsNull() = true`)
 	}
@@ -481,6 +498,14 @@ func TestNewFromInt(t *testing.T) {
 		t.Errorf(`NewFromInt(42) should be 42, d = %v`, d)
 	}
 
+	if d := NewFromUint64(0); d != Zero {
+		t.Errorf(`NewFromUint64(0) should be Zero, d = %v`, d)
+	}
+
+	if d := NewFromUint64(42); d != 42 {
+		t.Errorf(`NewFromUint64(42) should be 42, d = %v`, d)
+	}
+
 	if d := NewFromInt32(0); d != Zero {
 		t.Errorf(`NewFromInt32(0) should be Zero, d = %v`, d)
 	}
@@ -488,27 +513,15 @@ func TestNewFromInt(t *testing.T) {
 	if d := NewFromInt32(42); d != 42 {
 		t.Errorf(`NewFromInt32(42) should be 42, d = %v`, d)
 	}
+
+	if d := NewFromInt(MaxInt+1); !d.Div(10).Equal((MaxInt+1)/10) {
+		t.Errorf(`NewFromInt(%d) should be %d, d = %v`, MaxInt+1, MaxInt+1, d)
+	}
 }
 
 func TestNewFromFloat(t *testing.T) {
 	if d := NewFromFloat(0); d != Zero {
 		t.Errorf(`NewFromFloat(0) should be Zero, d = %v`, d)
-	}
-
-	if d := NewFromFloat32(0); d != Zero {
-		t.Errorf(`NewFromFloat32(0) should be Zero, d = %v`, d)
-	}
-
-	if d := NewFromFloat32(-14.999).Round(3); d != New(-14999, -3) {
-		t.Errorf(`NewFromFloat(-14.999) should be -14.999, d = %v`, d)
-	}
-
-	if d := NewFromFloat32(123456); d != 123456 {
-		t.Errorf(`NewFromFloat(123456) should be 123456, d = %v`, d)
-	}
-
-	if d := NewFromFloat32(0.01).Round(2); d != New(1, -2) {
-		t.Errorf(`NewFromFloat(0.01) should be 0.01, d = %v`, d)
 	}
 
 	if d := NewFromFloat(-14.999); d != New(-14999, -3) {
@@ -535,9 +548,52 @@ func TestNewFromFloat(t *testing.T) {
 		t.Errorf(`NewFromFloat(1.23456e+40) should be +Inf, d = %v`, d)
 	}
 
+	if d := NewFromFloat(math.Inf(0)); d != PositiveInfinity {
+		t.Errorf(`NewFromFloat(+Inf) should be +Inf, d = %v`, d)
+	}
+
+	if d := NewFromFloat(math.Inf(-1)); d != NegativeInfinity {
+		t.Errorf(`NewFromFloat(-Inf) should be -Inf, d = %v`, d)
+	}
+
+	if d := NewFromFloat(math.NaN()); !d.IsNaN() {
+		t.Errorf(`NewFromFloat(NaN) should be NaN, d = %v`, d)
+	}
+
 	if d := NewFromFloat(1.1e-70); d != NearPositiveZero {
 		t.Errorf(`NewFromFloat(1.1e-70) should be near +0 as too small, d = %v`, d)
 	}
+}
+
+func TestNewFromFloat32(t *testing.T) {
+	if d := NewFromFloat32(0); d != Zero {
+		t.Errorf(`NewFromFloat32(0) should be Zero, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(-14.999).Round(3); d != New(-14999, -3) {
+		t.Errorf(`NewFromFloat32(-14.999) should be -14.999, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(123456); d != 123456 {
+		t.Errorf(`NewFromFloat32(123456) should be 123456, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(0.01).Round(2); d != New(1, -2) {
+		t.Errorf(`NewFromFloat32(0.01) should be 0.01, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(float32(math.Inf(0))); !d.IsNaN() {
+		t.Errorf(`NewFromFloat32(+Inf) should be +Inf, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(float32(math.Inf(-1))); !d.IsNaN() {
+		t.Errorf(`NewFromFloat32(-Inf) should be -Inf, d = %v`, d)
+	}
+
+	if d := NewFromFloat32(float32(math.NaN())); !d.IsNaN() {
+		t.Errorf(`NewFromFloat32(NaN) should be NaN, d = %v`, d)
+	}
+
 }
 
 func TestNewFromFloatWithExponent(t *testing.T) {
@@ -712,6 +768,9 @@ func TestRoundZeros(t *testing.T) {
 	for _, s := range zeros_ceil {
 		d := RequireFromString(s)
 
+		if d.Ceil() != Zero {
+			t.Errorf(`d = %v rounded ceil should be Zero, d.Ceil(0) = %v`, d, d.Ceil())
+		}
 		if d.RoundCeil(0) != Zero {
 			t.Errorf(`d = %v rounded ceil to 0 decimals should be Zero, d.RoundCeil(0) = %v`, d, d.RoundCeil(0))
 		}
@@ -721,6 +780,9 @@ func TestRoundZeros(t *testing.T) {
 	for _, s := range zeros_floor {
 		d := RequireFromString(s)
 
+		if d.Floor() != Zero {
+			t.Errorf(`d = %v rounded floor should be Zero, d.Floor(0) = %v`, d, d.Floor())
+		}
 		if d.RoundFloor(0) != Zero {
 			t.Errorf(`d = %v rounded floor to 0 decimals should be Zero, d.RoundFloor(0) = %v`, d, d.RoundFloor(0))
 		}
@@ -1267,7 +1329,7 @@ func TestCompare(t *testing.T) {
 		}
 	}
 }
-func TestGreatherThan(t *testing.T) {
+func TestLessOrGreather(t *testing.T) {
 	for _, d1 := range [...]Decimal{0, Zero} {
 		if d2 := Zero; d1.GreatherThan(d2) {
 			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
@@ -1280,6 +1342,32 @@ func TestGreatherThan(t *testing.T) {
 		}
 		if d2 := NearNegativeZero; !d1.GreatherThan(d2) {
 			t.Errorf("%v.GreatherThan(%v) should be true but = %v", d1, d2, d1.GreatherThan(d2))
+		}
+
+		if d2 := Zero; d1.LessThan(d2) {
+			t.Errorf("%v.LessThan(%v) should be false but = %v", d1, d2, d1.LessThan(d2))
+		}
+		if d2 := NearZero; d1.LessThan(d2) {
+			t.Errorf("%v.LessThan(%v) should be false but = %v", d1, d2, d1.LessThan(d2))
+		}
+		if d2 := NearPositiveZero; !d1.LessThan(d2) {
+			t.Errorf("%v.LessThan(%v) should be false but = %v", d1, d2, d1.LessThan(d2))
+		}
+		if d2 := NearNegativeZero; d1.LessThan(d2) {
+			t.Errorf("%v.LessThan(%v) should be true but = %v", d1, d2, d1.LessThan(d2))
+		}
+
+		if d2 := Zero; !d1.LessThanOrEqual(d2) {
+			t.Errorf("%v.LessThanOrEqual(%v) should be false but = %v", d1, d2, d1.LessThanOrEqual(d2))
+		}
+		if d2 := NearZero; !d1.LessThanOrEqual(d2) {
+			t.Errorf("%v.LessThanOrEqual(%v) should be false but = %v", d1, d2, d1.LessThanOrEqual(d2))
+		}
+		if d2 := NearPositiveZero; !d1.LessThanOrEqual(d2) {
+			t.Errorf("%v.LessThanOrEqual(%v) should be false but = %v", d1, d2, d1.LessThanOrEqual(d2))
+		}
+		if d2 := NearNegativeZero; !d1.LessThanOrEqual(d2) {
+			t.Errorf("%v.LessThanOrEqual(%v) should be true but = %v", d1, d2, d1.LessThanOrEqual(d2))
 		}
 	}
 }
@@ -1457,10 +1545,31 @@ func TestSumAvg(t *testing.T) {
 }
 
 func TestIntConversion(t *testing.T) {
-	d := New(45712, -2)
+	d := NewFromInt(45712)
 
 	if i, err := d.IntPartErr(); err != nil {
 		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
+	} else if i != d.Int64() {
+		t.Errorf(`.IntPartErr(...) returned different integer %v != %v`, i, d.Int64())
+	}
+
+	d = d.Div(1000)
+	if i, err := d.IntPartErr(); err != nil {
+		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
+	} else if i != d.Int64() {
+		t.Errorf(`.IntPartErr(...) returned different integer %v != %v`, i, d.Int64())
+	}
+
+	d = d.Add(NearZero)
+	if i, err := d.IntPartErr(); err != nil {
+		t.Errorf(`.IntPartErr(...) returned error = %s`, err)
+	} else if i != d.Int64() {
+		t.Errorf(`.IntPartErr(...) returned different integer %v != %v`, i, d.Int64())
+	}
+
+	d = PositiveInfinity
+	if i, err := d.IntPartErr(); err == nil {
+		t.Errorf(`.IntPartErr(...) returned no error`)
 	} else if i != d.Int64() {
 		t.Errorf(`.IntPartErr(...) returned different integer %v != %v`, i, d.Int64())
 	}
@@ -1537,6 +1646,17 @@ func TestTranscendantalFunctions(t *testing.T) {
 		t.Errorf(`((2).Sqrt())² should be 2, but is %v`, sqrt2.Mul(sqrt2).Round(15))
 	}
 
+	e := NewFromFloat(math.E)
+	if e.Ln(16).Equal(1) {
+		t.Errorf(`(e).Ln(16) should be 1, but is %v`, e.Ln(16))
+	}
+	if !e.Pow(e).Ln(14).Equal(e.Round(14)) {
+		t.Errorf(`(e^e).Ln(14) should be e.Round(14) = %v, but is %v`, e.Round(14), e.Pow(e).Ln(14))
+	}
+	if powe, err := e.PowWithPrecision(e, 10); err != nil || !powe.Ln(14).Equal(e.Round(14)) {
+		t.Errorf(`(e^e).Ln(14) should be e.Round(14) = %v, but is %v`, e.Round(14), powe.Ln(14))
+	}
+
 	pi4 := NewFromFloat(math.Pi / 4)
 	sinpi4 := pi4.Sin()
 	cospi4 := pi4.Cos()
@@ -1555,6 +1675,42 @@ func TestTranscendantalFunctions(t *testing.T) {
 
 	pi2 := NewFromFloat(math.Pi / 2)
 	log.Printf("tan(pi/2) = %v, decimal tan(pi/2) = %v, decimal sin(pi/2)/cos(pi/2) = %v", math.Tan(math.Pi/2), pi2.Tan(), pi2.Sin().Div(pi2.Cos()))
+
+	var d Decimal = 1
+
+	if !d.Atan().Equal(pi4) {
+		t.Errorf(`1.Atan() should be (pi/4), but is %v`, d.Atan())
+	}
+}
+
+func TestTextJSONMarshaling(t *testing.T) {
+	d := New(123456, -3)
+
+	if b, err := d.MarshalText(); err != nil {
+		t.Errorf(`(%v).MarshalText() should be ok, error = %v`, d, err)
+	} else if string(b) != `123.456` {
+		t.Errorf(`(%v).MarshalText() should be '123.456', buff = '%s'`, d, b)
+	}
+
+	if b, err := d.MarshalJSON(); err != nil {
+		t.Errorf(`(%v).MarshalJSON() should be ok, error = %v`, d, err)
+	} else if string(b) != `123.456` {
+		t.Errorf(`(%v).MarshalJSON() should be '123.456', buff = '%s'`, d, b)
+	}
+
+	for _, b := range []string{`456.123`, `"456.123"`, } {
+		if err := d.UnmarshalText([]byte(b)); err != nil {
+			t.Errorf(`().UnmarshalText(%s) should be ok, error = %v`, b, err)
+		} else if d != New(456123, -3) {
+			t.Errorf(`().UnmarshalText(%s) should be '456.123', buff = '%s'`, b, d)
+		}
+
+		if err := d.UnmarshalJSON([]byte(b)); err != nil {
+			t.Errorf(`().UnmarshalJSON(%s) should be ok, error = %v`, b, err)
+		} else if d != New(456123, -3) {
+			t.Errorf(`().UnmarshalJSON(%s) should be '456.123', buff = '%s'`, b, d)
+		}
+	}
 }
 
 func TestUnmarshalBinary(t *testing.T) {
@@ -1603,6 +1759,52 @@ func TestUnmarshalBinary(t *testing.T) {
 	}
 }
 
+func TestGobDecode(t *testing.T) {
+	var d Decimal = 99
+
+	if err := d.GobDecode([]byte{0x00}); err != nil {
+		t.Errorf(`GobDecode(0x00) should be ok, error = %v`, err)
+	} else if d != Null {
+		t.Errorf(`GobDecode(0x00) should be null decimal, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0x80}); err != nil {
+		t.Errorf(`GobDecode(0x80) should be ok, error = %v`, err)
+	} else if d != Zero {
+		t.Errorf(`GobDecode(0x80) should be zero decimal, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0xc0}); err != nil {
+		t.Errorf(`GobDecode(0xc0) should be ok, error = %v`, err)
+	} else if d != NearZero {
+		t.Errorf(`GobDecode(0xc0) should be near zero decimal, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0x60}); err != nil {
+		t.Errorf(`GobDecode(0xe0) should be ok, error = %v`, err)
+	} else if d != NearPositiveZero {
+		t.Errorf(`GobDecode(0x60) should be near positive zero decimal, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0xe0}); err != nil {
+		t.Errorf(`GobDecode(0xe0) should be ok, error = %v`, err)
+	} else if d != NearNegativeZero {
+		t.Errorf(`GobDecode(0xe0) should be near negative zero decimal, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0x01, 0x64}); err != nil {
+		t.Errorf(`GobDecode(0x01, 0x64) should be ok, error = %v`, err)
+	} else if d != 100 {
+		t.Errorf(`GobDecode(0x01, 0x64) should be 100, d = %v`, d)
+	}
+
+	if err := d.GobDecode([]byte{0xbd, 0x65}); err != nil {
+		t.Errorf(`GobDecode(0x3d, 0x65) should be ok, error = %v`, err)
+	} else if d != New(-101, -2) {
+		t.Errorf(`GobDecode(0x3d, 0x65) should be -1.01, d = %v`, d)
+	}
+}
+
 func TestMarshalBinaryZero(t *testing.T) {
 	var d Decimal
 
@@ -1613,12 +1815,32 @@ func TestMarshalBinaryZero(t *testing.T) {
 	}
 
 	d = Zero
+
 	if b, err := d.MarshalBinary(); err != nil {
 		t.Errorf(`Zero.MarshalBinary() should be ok, error = %v`, err)
 	} else if len(b) != 1 || b[0] != 0x80 {
 		t.Errorf(`Zero.MarshalBinary() should be { 0x80 }, buff = %v`, b)
 	}
 }
+
+func TestGobEncodeZero(t *testing.T) {
+	var d Decimal
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`Null.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 1 || b[0] != 0x00 {
+		t.Errorf(`Null.GobEncode() should be { 0x00 }, buff = %v`, b)
+	}
+
+	d = Zero
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`Zero.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 1 || b[0] != 0x80 {
+		t.Errorf(`Zero.GobEncode() should be { 0x80 }, buff = %v`, b)
+	}
+}
+
 func TestMarshalBinaryNearZero(t *testing.T) {
 	d := NearZero
 
@@ -1629,6 +1851,7 @@ func TestMarshalBinaryNearZero(t *testing.T) {
 	}
 
 	d = NearPositiveZero
+
 	if b, err := d.MarshalBinary(); err != nil {
 		t.Errorf(`NearPositiveZero.MarshalBinary() should be ok, error = %v`, err)
 	} else if len(b) != 1 || b[0] != 0x60 {
@@ -1636,12 +1859,38 @@ func TestMarshalBinaryNearZero(t *testing.T) {
 	}
 
 	d = NearNegativeZero
+
 	if b, err := d.MarshalBinary(); err != nil {
 		t.Errorf(`NearNegativeZero.MarshalBinary() should be ok, error = %v`, err)
 	} else if len(b) != 1 || b[0] != 0xe0 {
 		t.Errorf(`NearNegativeZero.MarshalBinary() should be { 0xe0 }, buff = %v`, b)
 	}
+}
 
+func TestGobEncodeNearZero(t *testing.T) {
+	d := NearZero
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`NearZero.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 1 || b[0] != 0xc0 {
+		t.Errorf(`NearZero.GobEncode() should be { 0xc²0 }, buff = %v`, b)
+	}
+
+	d = NearPositiveZero
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`NearPositiveZero.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 1 || b[0] != 0x60 {
+		t.Errorf(`NearPositiveZero.GobEncode() should be { 0x60 }, buff = %v`, b)
+	}
+
+	d = NearNegativeZero
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`NearNegativeZero.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 1 || b[0] != 0xe0 {
+		t.Errorf(`NearNegativeZero.GobEncode() should be { 0xe0 }, buff = %v`, b)
+	}
 }
 
 func TestMarshalBinary(t *testing.T) {
@@ -1654,6 +1903,7 @@ func TestMarshalBinary(t *testing.T) {
 	}
 
 	d = -320
+
 	if b, err := d.MarshalBinary(); err != nil {
 		t.Errorf(`(-320).MarshalBinary() should be ok, error = %v`, err)
 	} else if len(b) != 3 || b[0] != 0x81 && b[1] != 0xc0 && b[2] != 0x02 {
@@ -1661,10 +1911,37 @@ func TestMarshalBinary(t *testing.T) {
 	}
 
 	d = New(101, -2)
+
 	if b, err := d.MarshalBinary(); err != nil {
 		t.Errorf(`(1.01).MarshalBinary() should be ok, error = %v`, err)
 	} else if len(b) != 2 || b[0] != 0x3d && b[1] != 0x65 {
 		t.Errorf(`(1.01).MarshalBinary() should be { 0x3d, 0x65 }, buff = %v`, b)
+	}
+}
+
+func TestGobEncode(t *testing.T) {
+	d := NewFromInt(100)
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`100.GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 2 || b[0] != 0x01 && b[1] != 0x64 {
+		t.Errorf(`100.GobEncode() should be { 0x01, 0x64 }, buff = %v`, b)
+	}
+
+	d = -320
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`(-320).GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 3 || b[0] != 0x81 && b[1] != 0xc0 && b[2] != 0x02 {
+		t.Errorf(`(-320).GobEncode() should be { 0x81, 0xc0, 0x02 }, buff = %v`, b)
+	}
+
+	d = New(101, -2)
+
+	if b, err := d.GobEncode(); err != nil {
+		t.Errorf(`(1.01).GobEncode() should be ok, error = %v`, err)
+	} else if len(b) != 2 || b[0] != 0x3d && b[1] != 0x65 {
+		t.Errorf(`(1.01).GobEncode() should be { 0x3d, 0x65 }, buff = %v`, b)
 	}
 }
 
