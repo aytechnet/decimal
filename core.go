@@ -2,10 +2,10 @@ package decimal
 
 import (
 	"bytes"
-	"unicode"
 	"math"
 	"math/bits"
 	"sync/atomic"
+	"unicode"
 )
 
 type unit struct {
@@ -342,7 +342,7 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 				}
 				var _e int64
 				for i <= j && b[i] >= '0' && b[i] <= '9' {
-					_e = 10 * _e + int64(b[i]-'0')
+					_e = 10*_e + int64(b[i]-'0')
 					i++
 				}
 
@@ -423,24 +423,24 @@ func vmeUnitOrMagicFromBytes(b []byte, v, m uint64, e int64, units []unit) (uint
 		//check if a magic has been found, magic are only valid if m is zero
 		if m == 0 {
 			switch h {
-				case 28637, 8018001: // on, yes
-					return v, 1, 0, nil
+			case 28637, 8018001: // on, yes
+				return v, 1, 0, nil
 
-				case 28381, 7357755: // no, off
-					if v&loss != 0 {
-						return v, 0, e, nil
-					} else {
-						return sign, 0, 0, nil
-					}
+			case 28381, 7357755: // no, off
+				if v&loss != 0 {
+					return v, 0, e, nil
+				} else {
+					return sign, 0, 0, nil
+				}
 
-				case 7290429: // nan
-					return loss, 0, 1, nil
+			case 7290429: // nan
+				return loss, 0, 1, nil
 
-				case 7292483, 1874960827: // nil, null
-					return 0, 0, 0, nil
+			case 7292483, 1874960827: // nil, null
+				return 0, 0, 0, nil
 
-				case 6963517: // inf
-					return v | loss, 0, math.MaxInt64, nil
+			case 6963517: // inf
+				return v | loss, 0, math.MaxInt64, nil
 			}
 		}
 		return v, m, e, ErrUnitSyntax
@@ -593,7 +593,7 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64) {
 	// v1, m1, e1 and v2, m2, e2 are respectively representation of decimal d1 and d2
 
-	v = v1 & ^uint64(sign | loss) // initialize v with v1 unit
+	v = v1 & ^uint64(sign|loss) // initialize v with v1 unit
 
 	// swap d1 and d2 vme so e1 <= e2
 	if e1 > e2 {
@@ -602,7 +602,7 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 	// handle magic of d1
 	if m1 == 0 {
-		v |= v2&(sign | loss)
+		v |= v2 & (sign | loss)
 		if v1&loss != 0 {
 			return vmeAddMagic1(v1, e1, v, m2, e2)
 		} else { // d1 == 0 (because loss is not set)
@@ -612,7 +612,7 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 	// handle magic of d2
 	if m2 == 0 {
-		v |= v1&(sign | loss)
+		v |= v1 & (sign | loss)
 		if v2&loss != 0 {
 			return vmeAddMagic1(v2, e2, v, m1, e1)
 		} else { // d2 == 0 (because loss is not set)
@@ -685,15 +685,15 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 	// check if d1 and d2 have the same sign
 	if sign&(v1^v2) == 0 {
-		v |= v1&sign
+		v |= v1 & sign
 		m = m1 + m2
 	} else {
 		// d1 and d2 have different sign the resulting sign is the greatest mantissa
 		if m1 < m2 {
-			v |= v2&sign
+			v |= v2 & sign
 			m = m2 - m1
 		} else {
-			v |= v1&sign
+			v |= v1 & sign
 			m = m1 - m2
 		}
 	}

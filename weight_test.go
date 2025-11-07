@@ -5,6 +5,15 @@ import (
 )
 
 func TestWeightConversions(t *testing.T) {
+	var w0 Weight
+
+	if w0.String() != "0" {
+		t.Errorf(`w0.String() should be equal to 0 but w0 = %v`, w0)
+	}
+	if w0.Bytes() != nil {
+		t.Errorf(`w0.Bytes() should be equal to nil but w0 = %v`, w0.Bytes())
+	}
+
 	w1, err := NewWeightFromString("1mcg")
 	if err != nil {
 		t.Errorf(`NewWeightFromString("1mcg") has result = %v and error = %v`, w1, err)
@@ -32,6 +41,16 @@ func TestWeightConversions(t *testing.T) {
 	w3 := w1.Add(w2)
 	if w3.String() != "31.1034768g" {
 		t.Errorf(`w3 should be equal to 31.1034768g (1 oz t) but w3 = %v (%016x)`, w3, uint64(w3))
+	}
+
+	w4 := w2.Sub(w3)
+	if w4.String() != "0 oz t" {
+		t.Errorf(`w4 should be equal to 0 oz t but w4 = %v (%016x)`, w4, uint64(w4))
+	}
+
+	w4, err = NewWeightFromString("11ozz")
+	if err == nil {
+		t.Errorf(`11ozz should have conversion error, error is not set`)
 	}
 }
 
@@ -69,8 +88,15 @@ func TestWeightAdd(t *testing.T) {
 	if w3.String() != "~99.77g" {
 		t.Errorf(`w3 should be equal to ~99.77g but w3 = %v`, w3)
 	}
-}
 
+	w4 := w3.Sub(w2)
+	if w4.Unit() != "g" {
+		t.Errorf(`w4 unit should be equal to g but w4 unit = %v`, w4.Unit())
+	}
+	if w4.String() != "~-1.23g" {
+		t.Errorf(`w4 should be equal to ~-1.23g but w4 = %v`, w4)
+	}
+}
 
 func TestWeightMul(t *testing.T) {
 	w1, err := NewWeightFromString("11mg")
@@ -84,6 +110,40 @@ func TestWeightMul(t *testing.T) {
 	}
 	if w2.String() != "121mg" {
 		t.Errorf(`w2 should be equal to 121mg but w2 = %v`, w2)
+	}
+}
+
+func TestWeightJSONMarshaling(t *testing.T) {
+	w, err := NewWeightFromString("11lb")
+	if err != nil {
+		t.Errorf(`NewWeightFromString("11lb") has result = %v and error = %v`, w, err)
+	}
+
+	if b, err := w.MarshalText(); err != nil {
+		t.Errorf(`(%v).MarshalText() should be ok, error = %v`, w, err)
+	} else if string(b) != `11lb` {
+		t.Errorf(`(%v).MarshalText() should be '11lb', buff = '%s'`, w, b)
+	}
+
+	if b, err := w.MarshalJSON(); err != nil {
+		t.Errorf(`(%v).MarshalJSON() should be ok, error = %v`, w, err)
+	} else if string(b) != `11lb` {
+		t.Errorf(`(%v).MarshalJSON() should be '11lb', buff = '%s'`, w, b)
+	}
+
+	w1, _ := NewWeightFromString("42g")
+	for _, b := range []string{`42g`, `"42g"`} {
+		if err := w.UnmarshalText([]byte(b)); err != nil {
+			t.Errorf(`().UnmarshalText(%s) should be ok, error = %v`, b, err)
+		} else if w != w1 {
+			t.Errorf(`().UnmarshalText(%s) should be '456.123', buff = '%s'`, b, w)
+		}
+
+		if err := w.UnmarshalJSON([]byte(b)); err != nil {
+			t.Errorf(`().UnmarshalJSON(%s) should be ok, error = %v`, b, err)
+		} else if w != w1 {
+			t.Errorf(`().UnmarshalJSON(%s) should be '456.123', buff = '%s'`, b, w)
+		}
 	}
 }
 
