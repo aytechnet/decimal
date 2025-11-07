@@ -2,15 +2,26 @@ package decimal
 
 import (
 	"bytes"
+	"unicode"
 	"math"
 	"math/bits"
-	"strconv"
+	"sync/atomic"
 )
+
+type unit struct {
+	u string
+	v uint64
+	h uint64
+	c Decimal
+}
 
 const (
 	// sign and loss bit are the same of any decimal types
 	sign uint64 = 0x8000000000000000
 	loss        = 0x4000000000000000
+
+	prime_unicode_lo uint64 = 257     // first prime number above 256
+	prime_unicode_hi uint64 = 1114111 // first prime number above biggest unicode value
 )
 
 // array of power of ten suitable to be hold in uint64
@@ -218,34 +229,7 @@ func vmhmeReduce(v, mh, m uint64, e int64) (uint64, uint64, int64) {
 }
 
 // extract a VME tuple from bytes which need to be normalized
-func vmeMagicFromBytes(b []byte, v, m uint64, e int64, parsed_sign bool) (uint64, uint64, int64, error) {
-	// strongly reduce cyclomatic complexity at the expense of memory allocation in this case
-	switch string(bytes.ToLower(b)) {
-	case "on", "yes":
-		return v, 1, 0, nil
-
-	case "no", "off":
-		if v&loss == 0 || !parsed_sign {
-			return v | sign, 0, 0, nil
-		} else {
-			return v, 0, math.MinInt64, nil
-		}
-
-	case "nan":
-		return loss, 0, 1, nil
-
-	case "nil", "null":
-		return 0, 0, 0, nil
-
-	case "inf":
-		return v | loss, 0, math.MaxInt64, nil
-	}
-
-	return 0, 0, 0, ErrSyntax
-}
-
-// extract a VME tuple from bytes which need to be normalized
-func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
+func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 	// take care of utf8 encoding with TrimSpace which is no more needed in the following code or a syntax error is raised
 	b = bytes.TrimSpace(b)
 
@@ -272,6 +256,7 @@ func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
 	}
 
 	parsed_sign := false
+	parsed_digit := false
 
 	if b[i] == '+' {
 		parsed_sign = true
@@ -305,6 +290,8 @@ func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
 
 	for i <= j {
 		if b[i] >= '0' && b[i] <= '9' {
+			parsed_digit = true
+
 			h, l := bits.Mul64(m, 10)
 
 			// if uint64 is big enough to hold this number
@@ -338,16 +325,37 @@ func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
 			i++
 
 			continue
-		} else if (b[i] | 0x20) == 'e' { // a little more compact and faster and equivalent to b[i] == 'e' || b[i] == 'E'
-			if _e, err := strconv.ParseInt(string(b[i+1:j+1]), 10, 64); err == nil {
-				e += _e
+		} else if (b[i] | 0x20) == 'e' { // a little more compact and probably faster and equivalent to b[i] == 'e' || b[i] == 'E'
+			if i < j && b[i+1] == '-' || b[i+1] == '+' || b[i+1] >= '0' && b[i+1] <= '9' {
+				neg_e := false
 
-				break
-			} else {
-				return 0, 0, 0, err
+				i++
+				if b[i] == '+' {
+					i++
+				} else if b[i] == '-' {
+					neg_e = true
+					i++
+				}
+				// e must be followed by an optional - or + but a digit
+				if i > j || b[i] < '0' || b[i] > '9' {
+					return 0, 0, 0, ErrSyntax
+				}
+				var _e int64
+				for i <= j && b[i] >= '0' && b[i] <= '9' {
+					_e = 10 * _e + int64(b[i]-'0')
+					i++
+				}
+
+				if neg_e {
+					e -= _e
+				} else {
+					e += _e
+				}
 			}
+
+			break
 		} else {
-			return vmeMagicFromBytes(b[i:j+1], v, m, e, parsed_sign)
+			break
 		}
 	}
 
@@ -356,23 +364,95 @@ func vmeFromBytes(b []byte) (v, m uint64, e int64, err error) {
 		if v&loss != 0 {
 			if parsed_sign {
 				e = math.MinInt64
-			} else {
+			} else if parsed_digit {
 				v |= sign
 				e = 0
 			}
-		} else {
+		} else if parsed_digit {
+			// normalize zero as some digits have been parsed
 			v = sign
 			e = 0
+		}
+	}
+
+	// finalize conversion using optional unit
+	return vmeUnitOrMagicFromBytes(b[i:j+1], v, m, e, units)
+}
+
+// compute unit hash and return error if overflow, this hash can be used for fast unit compare.
+func unitHash(s string) (h uint64) {
+	for _, r := range s {
+		if !unicode.IsSpace(r) {
+			r = unicode.ToLower(r)
+
+			k := prime_unicode_lo
+			if r >= 256 {
+				k = prime_unicode_hi
+			}
+			hi, lo := bits.Mul64(h, k)
+			h = hi + lo + uint64(r)
 		}
 	}
 
 	return
 }
 
+// interpret optional unit
+func vmeUnitOrMagicFromBytes(b []byte, v, m uint64, e int64, units []unit) (uint64, uint64, int64, error) {
+	if h := unitHash(string(b)); h > 0 {
+		for i := range units {
+			u := &units[i]
+
+			if u.u != "" {
+				// translate unit as unique uint64 hash for faster analysis
+				_h := atomic.LoadUint64(&u.h)
+				if _h == 0 {
+					_h = unitHash(u.u)
+
+					atomic.StoreUint64(&u.h, _h)
+				}
+
+				if h == _h {
+					v = v | u.v
+
+					return v, m, e, nil
+				}
+			}
+		}
+
+		//check if a magic has been found, magic are only valid if m is zero
+		if m == 0 {
+			switch h {
+				case 28637, 8018001: // on, yes
+					return v, 1, 0, nil
+
+				case 28381, 7357755: // no, off
+					if v&loss != 0 {
+						return v, 0, e, nil
+					} else {
+						return sign, 0, 0, nil
+					}
+
+				case 7290429: // nan
+					return loss, 0, 1, nil
+
+				case 7292483, 1874960827: // nil, null
+					return 0, 0, 0, nil
+
+				case 6963517: // inf
+					return v | loss, 0, math.MaxInt64, nil
+			}
+		}
+		return v, m, e, ErrUnitSyntax
+	}
+
+	return v, m, e, nil
+}
+
 // bytes appends decimal representation of a VME tuple to b
 // ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number
 // str is a boolean value to add double quote before and after output
-func vmeBytes(b []byte, v, m uint64, e int64, ext, str bool) []byte {
+func vmetBytes(b []byte, v, m uint64, e int64, t *unit, ext, str bool) []byte {
 	if str {
 		b = append(b, '"')
 	}
@@ -419,6 +499,10 @@ func vmeBytes(b []byte, v, m uint64, e int64, ext, str bool) []byte {
 		} else {
 			b = append(b, '0')
 		}
+	}
+
+	if t != nil {
+		b = append(b, []byte(t.u)...)
 	}
 
 	if str {
@@ -509,6 +593,8 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64) {
 	// v1, m1, e1 and v2, m2, e2 are respectively representation of decimal d1 and d2
 
+	v = v1 & ^uint64(sign | loss) // initialize v with v1 unit
+
 	// swap d1 and d2 vme so e1 <= e2
 	if e1 > e2 {
 		v1, m1, e1, v2, m2, e2 = v2, m2, e2, v1, m1, e1
@@ -516,19 +602,21 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 	// handle magic of d1
 	if m1 == 0 {
+		v |= v2&(sign | loss)
 		if v1&loss != 0 {
-			return vmeAddMagic1(v1, e1, v2, m2, e2)
+			return vmeAddMagic1(v1, e1, v, m2, e2)
 		} else { // d1 == 0 (because loss is not set)
-			return v2, m2, e2
+			return v, m2, e2
 		}
 	}
 
 	// handle magic of d2
 	if m2 == 0 {
+		v |= v1&(sign | loss)
 		if v2&loss != 0 {
-			return vmeAddMagic1(v2, e2, v1, m1, e1)
+			return vmeAddMagic1(v2, e2, v, m1, e1)
 		} else { // d2 == 0 (because loss is not set)
-			return v1, m1, e1
+			return v, m1, e1
 		}
 	}
 
@@ -597,15 +685,15 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 	// check if d1 and d2 have the same sign
 	if sign&(v1^v2) == 0 {
-		v |= v1 & sign
+		v |= v1&sign
 		m = m1 + m2
 	} else {
 		// d1 and d2 have different sign the resulting sign is the greatest mantissa
 		if m1 < m2 {
-			v |= v2 & sign
+			v |= v2&sign
 			m = m2 - m1
 		} else {
-			v |= v1 & sign
+			v |= v1&sign
 			m = m1 - m2
 		}
 	}
@@ -698,8 +786,7 @@ func vmeMul(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	}
 
 	// d1 nor d2 are zero
-	v = (v1|v2)&loss | (v1^v2)&sign
-
+	v = v1 & ^uint64(sign|loss) | (v1|v2)&loss | (v1^v2)&sign // initialize v with v1 unit
 	e = e1 + e2
 
 	// make sure no overflow occurs

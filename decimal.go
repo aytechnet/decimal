@@ -76,6 +76,9 @@ var (
 	// ErrSyntax can occurs when converting a string to a decimal.
 	ErrSyntax = errors.New("invalid syntax")
 
+	// ErrUnitSyntax occurs when unit is not recognized.
+	ErrUnitSyntax = errors.New("invalid unit syntax")
+
 	// ErrFormatcan occurs when decoding a binary to a decimal.
 	ErrFormat = errors.New("invalid format")
 
@@ -857,7 +860,7 @@ func Max(first Decimal, rest ...Decimal) Decimal {
 
 // NewFromBytes returns a new Decimal from a slice of bytes representation.
 func NewFromBytes(value []byte) (Decimal, error) {
-	if v, m, e, err := vmeFromBytes(value); err == nil {
+	if v, m, e, err := vmeFromBytes(value, nil); err == nil {
 		return vmeAsDecimal(v, m, e), nil
 	} else {
 		return 0, err
@@ -884,7 +887,7 @@ func NewFromString(value string) (Decimal, error) {
 //	d := RequireFromString("-123.45")
 //	d2 := RequireFromString(".0001")
 func RequireFromString(value string) Decimal {
-	if v, m, e, err := vmeFromBytes([]byte(value)); err == nil {
+	if v, m, e, err := vmeFromBytes([]byte(value), nil); err == nil {
 		return vmeAsDecimal(v, m, e)
 	} else {
 		panic(err)
@@ -893,7 +896,7 @@ func RequireFromString(value string) Decimal {
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
 func (d *Decimal) UnmarshalJSON(b []byte) error {
-	if v, m, e, err := vmeFromBytes(b); err == nil {
+	if v, m, e, err := vmeFromBytes(b, nil); err == nil {
 		*d = vmeAsDecimal(v, m, e)
 
 		return nil
@@ -928,7 +931,7 @@ func (d Decimal) Bytes() (b []byte) {
 		v, m, e := d.vme()
 
 		// the maximal length of decimal representation in bytes in such conditions is 20
-		return vmeBytes(make([]byte, 0, 20), v, m, e, true, false)
+		return vmetBytes(make([]byte, 0, 20), v, m, e, nil, true, false)
 	}
 }
 
@@ -936,7 +939,7 @@ func (d Decimal) Bytes() (b []byte) {
 func (d Decimal) MarshalJSON() ([]byte, error) {
 	v, m, e := d.vme()
 
-	return vmeBytes(nil, v, m, e, false, false), nil
+	return vmetBytes(nil, v, m, e, nil, false, false), nil
 }
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
