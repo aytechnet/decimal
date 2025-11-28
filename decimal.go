@@ -63,10 +63,10 @@ const (
 	// Use IsNaN method to check if a decimal is not a number.
 	NaN Decimal = 0x4200000000000000
 
-	decimal_min_e     = -16
-	decimal_max_e     = 15
-	decimal_bit_e     = 57
-	decimal_e_bitmask = 0x3e00000000000000
+	decimalMinE     = -16
+	decimalMaxE     = 15
+	decimalBitE     = 57
+	decimalEBitmask = 0x3e00000000000000
 )
 
 var (
@@ -105,12 +105,12 @@ func (d Decimal) Exponent() int32 {
 		u = uint64(d)
 	}
 
-	e := int64((u&decimal_e_bitmask)<<2) >> (2 + decimal_bit_e) // e is now fully signed exponent
+	e := int64((u&decimalEBitmask)<<2) >> (2 + decimalBitE) // e is now fully signed exponent
 
 	if u&MaxInt == 0 {
-		if e == decimal_min_e {
+		if e == decimalMinE {
 			return math.MinInt32
-		} else if e == decimal_max_e {
+		} else if e == decimalMaxE {
 			return math.MaxInt32
 		}
 	}
@@ -130,15 +130,15 @@ func (d Decimal) vme() (v, m uint64, e int64) {
 		v = u & loss
 	}
 
-	e = int64((u&decimal_e_bitmask)<<2) >> (2 + decimal_bit_e) // e is now fully signed exponent
+	e = int64((u&decimalEBitmask)<<2) >> (2 + decimalBitE) // e is now fully signed exponent
 
 	m = u & MaxInt
 
 	// take care of special number
 	if m == 0 {
-		if e == decimal_min_e {
+		if e == decimalMinE {
 			e = math.MinInt64
-		} else if e == decimal_max_e {
+		} else if e == decimalMaxE {
 			e = math.MaxInt64
 		}
 	}
@@ -148,7 +148,7 @@ func (d Decimal) vme() (v, m uint64, e int64) {
 
 // internal function to define a decimal from a VME tuple : Value of sign, loss and possibly type, Mantissa and Exponent
 func vmeAsDecimal(v, m uint64, e int64) Decimal {
-	// FIXME: handle special case for null and zero
+	// handle special case for null and zero
 	if m == 0 && v&loss == 0 {
 		if v == 0 && e == 0 {
 			return Null
@@ -156,10 +156,10 @@ func vmeAsDecimal(v, m uint64, e int64) Decimal {
 			return Zero
 		}
 	} else {
-		v, m, e = vmeNormalize(v, m, e, MaxInt, decimal_min_e, decimal_max_e)
+		v, m, e = vmeNormalize(v, m, e, MaxInt, decimalMinE, decimalMaxE)
 
-		// FIXME: out-of-range cannot occurs as normalization has been done
-		v |= m | uint64(e<<decimal_bit_e)&decimal_e_bitmask
+		// out-of-range cannot occurs as normalization has been done
+		v |= m | uint64(e<<decimalBitE)&decimalEBitmask
 
 		if v&sign != 0 {
 			return -Decimal(v ^ sign)
@@ -209,7 +209,7 @@ func (d1 Decimal) Div(d2 Decimal) Decimal {
 	if rem != 0 {
 		v |= loss
 
-		// FIXME: fix m so that the result is the nearest, like shopspring/decimal
+		// fix m so that the result is the nearest, like in shopspring/decimal
 		if (rem << 1) >= m2 {
 			m++
 		}
@@ -281,14 +281,14 @@ func (d1 Decimal) Cmp(d2 Decimal) int {
 }
 
 // GreaterThan returns true when d1 is greater than d2 (d1 > d2).
-func (d1 Decimal) GreatherThan(d2 Decimal) bool {
+func (d1 Decimal) GreaterThan(d2 Decimal) bool {
 	d := d1.Sub(d2)
 
 	return d.IsPositive()
 }
 
 // GreaterThanOrEqual returns true when d1 is greater than or equal to d2 (d1 >= d2).
-func (d1 Decimal) GreatherThanOrEqual(d2 Decimal) bool {
+func (d1 Decimal) GreaterThanOrEqual(d2 Decimal) bool {
 	d := d1.Sub(d2)
 
 	return d.IsPositive() || d.IsZero()
@@ -296,12 +296,12 @@ func (d1 Decimal) GreatherThanOrEqual(d2 Decimal) bool {
 
 // LessThan returns true when d1 is less than d2 (d1 < d2).
 func (d1 Decimal) LessThan(d2 Decimal) bool {
-	return d2.GreatherThan(d1)
+	return d2.GreaterThan(d1)
 }
 
 // LessThanOrEqual returns true when d1 is less than or equal to d2 (d1 <= d2).
 func (d1 Decimal) LessThanOrEqual(d2 Decimal) bool {
-	return d2.GreatherThanOrEqual(d1)
+	return d2.GreaterThanOrEqual(d1)
 }
 
 // Round rounds the decimal to places decimal places. If places < 0, it will round the integer part to the nearest 10^(-places).
@@ -377,9 +377,9 @@ func (d Decimal) IsNull() bool {
 //
 //	default_value if d == Null
 //	d in any other cases
-func (d Decimal) IfNull(default_value Decimal) Decimal {
+func (d Decimal) IfNull(defaultValue Decimal) Decimal {
 	if d == Null {
-		return default_value
+		return defaultValue
 	} else {
 		return d
 	}
@@ -433,7 +433,7 @@ func (d Decimal) IsInteger() bool {
 //	false if d < 0 or d == ~-0
 //	false if d is NaN
 func (d Decimal) IsPositive() bool {
-	return d > 0 && !d.IsNaN() // FIXME: Zero is negative so this case is not needed
+	return d > 0 && !d.IsNaN() // Zero is negative so this case is not needed
 }
 
 // IsNegative return
@@ -517,7 +517,7 @@ func (d Decimal) IntPartErr() (int64, error) {
 	v, m, e := d.vme()
 
 	if v&loss != 0 && m == 0 {
-		if e == decimal_max_e {
+		if e == decimalMaxE {
 			if d < 0 {
 				return math.MinInt64, ErrOutOfRange
 			} else {
@@ -535,7 +535,7 @@ func (d Decimal) IntPartErr() (int64, error) {
 			return int64(m), nil
 		}
 	} else if e > 0 {
-		hi, lo := bits.Mul64(m, ten_pow[e])
+		hi, lo := bits.Mul64(m, tenPow[e])
 
 		if hi == 0 && lo <= MaxInt {
 			if d < 0 {
@@ -551,7 +551,7 @@ func (d Decimal) IntPartErr() (int64, error) {
 			}
 		}
 	} else {
-		m /= ten_pow[-e]
+		m /= tenPow[-e]
 
 		if d < 0 {
 			return -int64(m), nil
@@ -591,23 +591,23 @@ func (d Decimal) Float64() (f float64, exact bool) {
 			exact = false
 		}
 	} else if e > 0 {
-		for e >= int64(len(ten_pow)) {
-			f *= float64(ten_pow[len(ten_pow)-1])
-			e -= int64(len(ten_pow) - 1)
+		for e >= int64(len(tenPow)) {
+			f *= float64(tenPow[len(tenPow)-1])
+			e -= int64(len(tenPow) - 1)
 			exact = false
 		}
-		f *= float64(ten_pow[e])
+		f *= float64(tenPow[e])
 		if f > float64(1<<54) {
 			exact = false
 		}
 	} else if e < 0 {
-		for e <= -int64(len(ten_pow)) {
-			f /= float64(ten_pow[len(ten_pow)-1])
-			e += int64(len(ten_pow) - 1)
+		for e <= -int64(len(tenPow)) {
+			f /= float64(tenPow[len(tenPow)-1])
+			e += int64(len(tenPow) - 1)
 			exact = false
 		}
-		f /= float64(ten_pow[-e])
-		// FIXME: compute exact more accurately
+		f /= float64(tenPow[-e])
+		// may compute exact more accurately
 	}
 
 	if v&sign != 0 {
@@ -655,7 +655,7 @@ func (d1 Decimal) Pow(d2 Decimal) Decimal {
 
 // PowWithPrecision returns d to the power of d2. Precision parameter specifies minimum precision of the result (digits after decimal point). Returned decimal is not rounded to 'precision' places after decimal point.
 func (d1 Decimal) PowWithPrecision(d2 Decimal, precision int32) (Decimal, error) {
-	// FIXME: should return error like shopspring decimal
+	// compatibility issue as this code do not return error like shopspring decimal
 	return d1.Pow(d2), nil
 }
 
@@ -817,7 +817,7 @@ func Sum(first Decimal, rest ...Decimal) Decimal {
 	for _, item := range rest {
 		t := sum.Add(item)
 
-		if sum.Abs().GreatherThanOrEqual(item.Abs()) {
+		if sum.Abs().GreaterThanOrEqual(item.Abs()) {
 			c = c.Add(sum.Sub(t).Add(item)) // If sum is bigger, low-order digits of item are lost.
 		} else {
 			c = c.Add(item.Sub(t).Add(sum)) // Else low-order digits of sum are lost.
@@ -839,7 +839,7 @@ func Min(first Decimal, rest ...Decimal) Decimal {
 	min := first
 
 	for _, item := range rest {
-		if min.GreatherThanOrEqual(item) {
+		if min.GreaterThanOrEqual(item) {
 			min = item
 		}
 	}
@@ -851,7 +851,7 @@ func Min(first Decimal, rest ...Decimal) Decimal {
 func Max(first Decimal, rest ...Decimal) Decimal {
 	max := first
 	for _, item := range rest {
-		if item.GreatherThanOrEqual(max) {
+		if item.GreaterThanOrEqual(max) {
 			max = item
 		}
 	}
@@ -923,6 +923,54 @@ func (d Decimal) String() string {
 	}
 }
 
+// StringFixed returns a rounded fixed-point string with places digits after
+// the decimal point.
+//
+// Example:
+//
+//	NewFromFloat(0).StringFixed(2) // output: "0.00"
+//	NewFromFloat(0).StringFixed(0) // output: "0"
+//	NewFromFloat(5.45).StringFixed(0) // output: "5"
+//	NewFromFloat(5.45).StringFixed(1) // output: "5.5"
+//	NewFromFloat(5.45).StringFixed(2) // output: "5.45"
+//	NewFromFloat(5.45).StringFixed(3) // output: "5.450"
+//	NewFromFloat(545).StringFixed(-1) // output: "550"
+func (d Decimal) StringFixed(places int32) string {
+	v, m, e := d.vme()
+
+	v, m, e = vmeRound(v, m, e, places)
+
+	if places < 0 {
+		return string(vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false))
+	} else {
+		return string(vmetBytes(make([]byte, 0, 20), v, m, e, places, nil, true, false))
+	}
+}
+
+// StringFixedBank returns a banker rounded fixed-point string with places digits
+// after the decimal point.
+//
+// Example:
+//
+//	NewFromFloat(0).StringFixedBank(2) // output: "0.00"
+//	NewFromFloat(0).StringFixedBank(0) // output: "0"
+//	NewFromFloat(5.45).StringFixedBank(0) // output: "5"
+//	NewFromFloat(5.45).StringFixedBank(1) // output: "5.4"
+//	NewFromFloat(5.45).StringFixedBank(2) // output: "5.45"
+//	NewFromFloat(5.45).StringFixedBank(3) // output: "5.450"
+//	NewFromFloat(545).StringFixedBank(-1) // output: "540"
+func (d Decimal) StringFixedBank(places int32) string {
+	v, m, e := d.vme()
+
+	v, m, e = vmeRoundBank(v, m, e, places)
+
+	if places < 0 {
+		return string(vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false))
+	} else {
+		return string(vmetBytes(make([]byte, 0, 20), v, m, e, places, nil, true, false))
+	}
+}
+
 // Bytes returns the string representation of the decimal as a slice of byte, but nil if the decimal is Null.
 func (d Decimal) Bytes() (b []byte) {
 	if d == Null {
@@ -931,7 +979,7 @@ func (d Decimal) Bytes() (b []byte) {
 		v, m, e := d.vme()
 
 		// the maximal length of decimal representation in bytes in such conditions is 20
-		return vmetBytes(make([]byte, 0, 20), v, m, e, nil, true, false)
+		return vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false)
 	}
 }
 
@@ -939,7 +987,7 @@ func (d Decimal) Bytes() (b []byte) {
 func (d Decimal) MarshalJSON() ([]byte, error) {
 	v, m, e := d.vme()
 
-	return vmetBytes(nil, v, m, e, nil, false, false), nil
+	return vmetBytes(nil, v, m, e, 0, nil, false, false), nil
 }
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
@@ -948,10 +996,10 @@ func (d *Decimal) UnmarshalBinary(data []byte) error {
 		return ErrFormat
 	}
 
-	u := uint64(data[0]) << (decimal_bit_e - 1)
+	u := uint64(data[0]) << (decimalBitE - 1)
 	if data[0]&1 != 0 {
 		// clear low bit
-		u = u ^ (1 << (decimal_bit_e - 1))
+		u = u ^ (1 << (decimalBitE - 1))
 		if m, n := binary.Uvarint(data[1:]); n <= 0 {
 			return ErrFormat
 		} else {
@@ -975,10 +1023,10 @@ func (d Decimal) MarshalBinary() (data []byte, err error) {
 
 	if d < 0 {
 		u = uint64(-d)
-		x = byte((u | sign) >> (decimal_bit_e - 1))
+		x = byte((u | sign) >> (decimalBitE - 1))
 	} else {
 		u = uint64(d)
-		x = byte(u >> (decimal_bit_e - 1))
+		x = byte(u >> (decimalBitE - 1))
 	}
 	u = u & MaxInt
 

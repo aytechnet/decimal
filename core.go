@@ -20,12 +20,12 @@ const (
 	sign uint64 = 0x8000000000000000
 	loss        = 0x4000000000000000
 
-	prime_unicode_lo uint64 = 257     // first prime number above 256
-	prime_unicode_hi uint64 = 1114111 // first prime number above biggest unicode value
+	primeUnicodeLo uint64 = 257     // first prime number above 256
+	primeUnicodeHi uint64 = 1114111 // first prime number above biggest unicode value
 )
 
 // array of power of ten suitable to be hold in uint64
-var ten_pow = [...]uint64{
+var tenPow = [...]uint64{
 	1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
 	10000000000, 100000000000, 1000000000000, 10000000000000, 100000000000000,
 	1000000000000000, 10000000000000000, 100000000000000000, 1000000000000000000, 10000000000000000000,
@@ -56,30 +56,30 @@ var ten_pow = [...]uint64{
 //   - loss is not set :
 //     null = (0, 0, 0)
 //     0    = (sign, 0, any) or (0, 0, not 0)
-func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint64, uint64, int64) {
+func vmeNormalize(v, m uint64, e int64, maxM uint64, minE, maxE int64) (uint64, uint64, int64) {
 	if m == 0 {
-		return veNormalizeMagic(v, e, min_e, max_e)
+		return veNormalizeMagic(v, e, minE, maxE)
 	} else {
 		// check if an decimal can be represented as a compatible int64 value
 		// it is possible ony if loss bit is not set and exponent is in acceptable range
 		if v&loss == 0 {
 			if e == 0 {
-				if m <= max_m {
+				if m <= maxM {
 					return v, m, 0
 				}
 			} else if e > 0 {
-				if e < int64(len(ten_pow)) {
-					h, l := bits.Mul64(m, ten_pow[e])
+				if e < int64(len(tenPow)) {
+					h, l := bits.Mul64(m, tenPow[e])
 
-					if h == 0 && l <= max_m {
+					if h == 0 && l <= maxM {
 						return v, l, 0
 					}
 				}
 			} else if m&1 == 0 {
-				if e > -int64(len(ten_pow)) {
-					q, r := bits.Div64(0, m, ten_pow[-e])
+				if e > -int64(len(tenPow)) {
+					q, r := bits.Div64(0, m, tenPow[-e])
 
-					if r == 0 && q <= max_m {
+					if r == 0 && q <= maxM {
 						return v, q, 0
 					}
 				}
@@ -87,11 +87,11 @@ func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint6
 		}
 
 		// normalize m while it is divisible by 10 or greather than max_m
-		for m > max_m || e <= max_e && m > 9 && m&1 == 0 {
+		for m > maxM || e <= maxE && m > 9 && m&1 == 0 {
 			q, r := bits.Div64(0, m, 10)
 			if r != 0 {
 				// division tried has reminder, if mantissa was in acceptable range ignore division.
-				if m <= max_m {
+				if m <= maxM {
 					break
 				}
 
@@ -107,22 +107,22 @@ func vmeNormalize(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint6
 			e++
 		}
 
-		return vmeNormalizeExponent(v, m, e, max_m, min_e, max_e)
+		return vmeNormalizeExponent(v, m, e, maxM, minE, maxE)
 	}
 }
 
-func vmeNormalizeExponent(v, m uint64, e int64, max_m uint64, min_e, max_e int64) (uint64, uint64, int64) {
+func vmeNormalizeExponent(v, m uint64, e int64, maxM uint64, minE, maxE int64) (uint64, uint64, int64) {
 	// normalize too small exponent by updating mantissa and adding if necessary a precision loss
-	if e < min_e {
-		if min_e-e < int64(len(ten_pow)) {
+	if e < minE {
+		if minE-e < int64(len(tenPow)) {
 			var r uint64
 
-			m, r = bits.Div64(0, m, ten_pow[min_e-e])
+			m, r = bits.Div64(0, m, tenPow[minE-e])
 			if r != 0 {
 				v |= loss
 
 				// round to the nearest
-				if (r << 1) >= ten_pow[min_e-e] {
+				if (r << 1) >= tenPow[minE-e] {
 					m++
 				}
 			}
@@ -133,15 +133,15 @@ func vmeNormalizeExponent(v, m uint64, e int64, max_m uint64, min_e, max_e int64
 		}
 
 		// e is now min_e
-		e = min_e
+		e = minE
 	}
 
 	// normalize too big exponent
-	if e > max_e {
-		if e-max_e < int64(len(ten_pow)) {
-			h, l := bits.Mul64(m, ten_pow[e-max_e])
+	if e > maxE {
+		if e-maxE < int64(len(tenPow)) {
+			h, l := bits.Mul64(m, tenPow[e-maxE])
 
-			if h == 0 || l < max_m {
+			if h == 0 || l < maxM {
 				m = l
 			} else {
 				v |= loss
@@ -157,23 +157,24 @@ func vmeNormalizeExponent(v, m uint64, e int64, max_m uint64, min_e, max_e int64
 		}
 
 		// e is now max_e
-		e = max_e
+		e = maxE
 	}
 
 	return v, m, e
 }
 
-func veNormalizeMagic(v uint64, e int64, min_e, max_e int64) (uint64, uint64, int64) {
+func veNormalizeMagic(v uint64, e int64, minE, maxE int64) (uint64, uint64, int64) {
 	if v&loss == 0 {
 		return v, 0, 0
-	} else {
-		if e < min_e {
-			e = min_e
-		} else if e > max_e {
-			e = max_e
-		} else if e == 0 {
-			v |= sign
-		}
+	}
+
+	switch {
+	case e < minE:
+		e = minE
+	case e > maxE:
+		e = maxE
+	case e == 0:
+		v |= sign
 	}
 
 	return v, 0, e
@@ -181,7 +182,7 @@ func veNormalizeMagic(v uint64, e int64, min_e, max_e int64) (uint64, uint64, in
 
 func vmhmeReduce(v, mh, m uint64, e int64) (uint64, uint64, int64) {
 	if mh > 0 {
-		for i, p := range ten_pow {
+		for i, p := range tenPow {
 			if mh < p {
 				q, r := bits.Div64(mh, m, p)
 				if r != 0 {
@@ -213,8 +214,8 @@ func vmhmeReduce(v, mh, m uint64, e int64) (uint64, uint64, int64) {
 			}
 		}
 
-		i := len(ten_pow) - 1
-		p := ten_pow[i]
+		i := len(tenPow) - 1
+		p := tenPow[i]
 
 		q, r := bits.Div64(qh, qm, p)
 		if r != 0 {
@@ -255,20 +256,21 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 		}
 	}
 
-	parsed_sign := false
-	parsed_digit := false
+	parsedSign := false
+	parsedDigit := false
 
-	if b[i] == '+' {
-		parsed_sign = true
+	switch b[i] {
+	case '+':
+		parsedSign = true
 
 		i++
 		if i > j {
 			return 0, 0, 0, ErrSyntax
 		}
-	} else if b[i] == '-' {
+	case '-':
 		v |= sign
 
-		parsed_sign = true
+		parsedSign = true
 
 		i++
 		if i > j {
@@ -288,9 +290,11 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 
 	doti := -1
 
+Loop:
 	for i <= j {
-		if b[i] >= '0' && b[i] <= '9' {
-			parsed_digit = true
+		switch {
+		case b[i] >= '0' && b[i] <= '9':
+			parsedDigit = true
 
 			h, l := bits.Mul64(m, 10)
 
@@ -315,7 +319,7 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 			i++
 
 			continue
-		} else if b[i] == '.' {
+		case b[i] == '.':
 			if doti < 0 { // only one dot is allowed or a syntax error is raised
 				doti = i
 			} else {
@@ -325,15 +329,16 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 			i++
 
 			continue
-		} else if (b[i] | 0x20) == 'e' { // a little more compact and probably faster and equivalent to b[i] == 'e' || b[i] == 'E'
+		case (b[i] | 0x20) == 'e': // a little more compact and probably faster and equivalent to b[i] == 'e' || b[i] == 'E'
 			if i < j && b[i+1] == '-' || b[i+1] == '+' || b[i+1] >= '0' && b[i+1] <= '9' {
-				neg_e := false
+				negE := false
 
 				i++
-				if b[i] == '+' {
+				switch b[i] {
+				case '+':
 					i++
-				} else if b[i] == '-' {
-					neg_e = true
+				case '-':
+					negE = true
 					i++
 				}
 				// e must be followed by an optional - or + but a digit
@@ -346,29 +351,29 @@ func vmeFromBytes(b []byte, units []unit) (v, m uint64, e int64, err error) {
 					i++
 				}
 
-				if neg_e {
+				if negE {
 					e -= _e
 				} else {
 					e += _e
 				}
 			}
 
-			break
-		} else {
-			break
+			break Loop
+		default:
+			break Loop
 		}
 	}
 
 	// FIXME: NaN does not occurs here, so fix v and e to avoid NaN report
 	if m == 0 {
 		if v&loss != 0 {
-			if parsed_sign {
+			if parsedSign {
 				e = math.MinInt64
-			} else if parsed_digit {
+			} else if parsedDigit {
 				v |= sign
 				e = 0
 			}
-		} else if parsed_digit {
+		} else if parsedDigit {
 			// normalize zero as some digits have been parsed
 			v = sign
 			e = 0
@@ -385,9 +390,9 @@ func unitHash(s string) (h uint64) {
 		if !unicode.IsSpace(r) {
 			r = unicode.ToLower(r)
 
-			k := prime_unicode_lo
+			k := primeUnicodeLo
 			if r >= 256 {
-				k = prime_unicode_hi
+				k = primeUnicodeHi
 			}
 			hi, lo := bits.Mul64(h, k)
 			h = hi + lo + uint64(r)
@@ -452,7 +457,7 @@ func vmeUnitOrMagicFromBytes(b []byte, v, m uint64, e int64, units []unit) (uint
 // bytes appends decimal representation of a VME tuple to b
 // ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number
 // str is a boolean value to add double quote before and after output
-func vmetBytes(b []byte, v, m uint64, e int64, t *unit, ext, str bool) []byte {
+func vmetBytes(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str bool) []byte {
 	if str {
 		b = append(b, '"')
 	}
@@ -468,7 +473,7 @@ func vmetBytes(b []byte, v, m uint64, e int64, t *unit, ext, str bool) []byte {
 		if v&sign != 0 {
 			b = append(b, '-')
 		}
-		for i = len(ten_pow) - 1; i >= 0; i-- {
+		for i = len(tenPow) - 1; i >= 0; i-- {
 			if int64(i)+e+1 == 0 {
 				if !output {
 					b = append(b, '0')
@@ -479,7 +484,7 @@ func vmetBytes(b []byte, v, m uint64, e int64, t *unit, ext, str bool) []byte {
 				output = true
 			}
 
-			m, r = bits.Div64(0, m, ten_pow[i])
+			m, r = bits.Div64(0, m, tenPow[i])
 
 			if output || m > 0 || int64(i)+e <= 0 {
 				b = append(b, byte(m)+'0')
@@ -490,14 +495,25 @@ func vmetBytes(b []byte, v, m uint64, e int64, t *unit, ext, str bool) []byte {
 			m = r
 		}
 
-		for e += int64(i); e >= 0; e-- {
+		for e += int64(i); e >= int64(places); e-- {
 			b = append(b, '0')
+		}
+		for e+int64(places) >= 0 {
+			b = append(b, '0')
+			places--
 		}
 	} else {
 		if v&loss != 0 {
 			b = veMagicBytes(b, v, e, ext)
 		} else {
 			b = append(b, '0')
+			if places > 0 {
+				b = append(b, '.')
+				for places > 0 {
+					b = append(b, '0')
+					places--
+				}
+			}
 		}
 	}
 
@@ -548,7 +564,8 @@ func veMagicBytes(b []byte, v uint64, e int64, ext bool) []byte {
 
 func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64) {
 	// m1 is already 0 and loss bit is set so check if d1 is ~0, ~+0, ~-0, NaN, -Inf or +Inf
-	if e1 == 0 || e1 == math.MinInt64 { // if d1 == ~0 or d1 == -~0 or d1 == +~0
+	switch e1 {
+	case 0, math.MinInt64: // if d1 == ~0 or d1 == -~0 or d1 == +~0
 		if m2 == 0 && v2&loss != 0 {
 			if v2 == sign|loss && e2 == 0 { // if d2 == ~0
 				return v2, m2, e2
@@ -569,7 +586,7 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 				return v2 | loss, m2, e2
 			}
 		}
-	} else if e1 == math.MaxInt64 { // if d1 == -Inf or +Inf
+	case math.MaxInt64: // if d1 == -Inf or +Inf
 		if m2 == 0 && v2&loss != 0 { // if d2 is a magic decimal
 			if e2 == math.MaxInt64 { // if d2 == -Inf or +Inf
 				if sign&(v1^v2) == 0 { // if sign are the same, +Inf + +Inf = +Inf or -Inf + -Inf = -Inf
@@ -585,7 +602,7 @@ func vmeAddMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e 
 		} else { // d2 is a normal decimal, return d1 which is -Inf or +Inf
 			return v1, 0, e1
 		}
-	} else { // d1 is a NaN decimal
+	default: // d1 is a NaN decimal
 		return v1, 0, e1
 	}
 }
@@ -623,8 +640,8 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	e = e1
 
 	if e1 < e2 {
-		if e2-e1 < int64(len(ten_pow)) {
-			h2, l2 := bits.Mul64(m2, ten_pow[e2-e1])
+		if e2-e1 < int64(len(tenPow)) {
+			h2, l2 := bits.Mul64(m2, tenPow[e2-e1])
 
 			if h2 != 0 {
 				// reduce precision so that h2, l2 is divided by p=10 ^ i appropriate so that h2 < p
@@ -632,11 +649,11 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 				// FIXME: speed the following code to avoid trying the 20 items of ten_pow : for i, p := range ten_pow {
 				i := 1
-				j := len(ten_pow) - 1
+				j := len(tenPow) - 1
 
 				// step 1 : reduce up to 10 items to examine in ten_pow
 				k := (i + j) >> 1
-				if h2 < ten_pow[k] {
+				if h2 < tenPow[k] {
 					j = k
 				} else {
 					i = k
@@ -644,7 +661,7 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 				// step 2 : reduce up to 5 items to examine in ten_pow
 				k = (i + j) >> 1
-				if h2 < ten_pow[k] {
+				if h2 < tenPow[k] {
 					j = k
 				} else {
 					i = k
@@ -652,14 +669,14 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 
 				// step 3 : reduce up to 3 items to examine in ten_pow
 				k = (i + j) >> 1
-				if h2 < ten_pow[k] {
+				if h2 < tenPow[k] {
 					j = k
 				} else {
 					i = k
 				}
 
 				for k = i; k <= j; k++ {
-					p := ten_pow[k]
+					p := tenPow[k]
 
 					// FIXME: see FIXME above : for i, p := range ten_pow {
 					if h2 < p {
@@ -710,8 +727,9 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	return
 }
 
-func vmeMulMagic1(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64) {
-	if e1 == 0 { // d1 is ~0
+func vmeMulMagic1(v1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64) {
+	switch e1 {
+	case 0: // d1 is ~0
 		// so check if d2 is NaN or infinity
 		if m2 == 0 {
 			if v2&loss != 0 {
@@ -727,7 +745,7 @@ func vmeMulMagic1(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64
 		}
 
 		return sign | loss, 0, 0 // return ~0
-	} else if e1 == math.MinInt64 { // d1 is +~0 or -~0
+	case math.MinInt64: // d1 is +~0 or -~0
 		// so check if d2 is NaN or infinity
 		if m2 == 0 {
 			if v2&loss != 0 {
@@ -746,7 +764,7 @@ func vmeMulMagic1(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64
 		}
 
 		return (v1^v2)&sign | loss, 0, math.MinInt64 // return ~+0 or ~-0
-	} else if e1 == math.MaxInt64 { // d1 is +Inf or -Inf
+	case math.MaxInt64: // d1 is +Inf or -Inf
 		// so check if d2 is NaN or too close to zero
 		if m2 == 0 {
 			if v2&loss != 0 {
@@ -770,7 +788,7 @@ func vmeMul(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	// handle magic of d1
 	if m1 == 0 {
 		if v1&loss != 0 {
-			return vmeMulMagic1(v1, m1, e1, v2, m2, e2)
+			return vmeMulMagic1(v1, e1, v2, m2, e2)
 		} else {
 			return sign, 0, 0 // return Zero vme
 		}
@@ -779,7 +797,7 @@ func vmeMul(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	// handle magic of d2
 	if m2 == 0 {
 		if v2&loss != 0 {
-			return vmeMulMagic1(v2, m2, e2, v1, m1, e1)
+			return vmeMulMagic1(v2, e2, v1, m1, e1)
 		} else {
 			return sign, 0, 0 // return Zero vme
 		}
@@ -803,10 +821,11 @@ func vmeMul(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 }
 
 // d2 is already magic number (loss is set, mantissa is already 0)
-func vmeDivRemMagic2(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e int64, r uint64, re int64) {
-	if e2 == 0 { // d2 is ~0
+func vmeDivRemMagic2(v1, m1 uint64, e1 int64, v2 uint64, e2 int64) (v, m uint64, e int64, r uint64, re int64) {
+	switch e2 {
+	case 0: // d2 is ~0
 		return loss, 0, 1, 0, 0 // return NaN and remainder 0
-	} else if e2 == math.MinInt64 { // d2 is +~0 or -~0
+	case math.MinInt64: // d2 is +~0 or -~0
 		if m1 == 0 {
 			if v1&loss != 0 { // d1 is also magic
 				if e1 == 0 || e1 == math.MinInt64 { // d1 is ~0, +~0 or -~0 result is also NaN
@@ -820,7 +839,7 @@ func vmeDivRemMagic2(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uin
 		} else { // d1 is an ordinary decimal not near 0
 			return loss | (v1^v2)&sign, 0, math.MaxInt64, 0, 0 // return +Inf or -Inf and remainder 0
 		}
-	} else if e2 == math.MaxInt64 { // d2 is +Inf or -Inf
+	case math.MaxInt64: // d2 is +Inf or -Inf
 		if m1 == 0 {
 			if v1&loss != 0 { // d1 is also magic
 				if e1 == 0 { // d1 is ~0
@@ -845,7 +864,7 @@ func vmeDivRem(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64, precision int32
 	// handle magic of d2
 	if m2 == 0 {
 		if v2&loss != 0 {
-			return vmeDivRemMagic2(v1, m1, e1, v2, m2, e2)
+			return vmeDivRemMagic2(v1, m1, e1, v2, e2)
 		} else {
 			return loss, 0, 1, 0, 0 // return NaN and remainder 0
 		}
@@ -864,21 +883,21 @@ func vmeDivRem(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64, precision int32
 	e = e1 - e2 // - int64(precision)
 
 	re = -int64(precision)
-	ten_pow_i := e + int64(precision)
-	if ten_pow_i < 0 {
+	tenPowI := e + int64(precision)
+	if tenPowI < 0 {
 		// FIXME: fix re as well
-		re += ten_pow_i
-		ten_pow_i = 0
+		re += tenPowI
+		tenPowI = 0
 	}
-	if int(ten_pow_i) >= len(ten_pow) {
-		ten_pow_i = int64(len(ten_pow) - 1)
+	if int(tenPowI) >= len(tenPow) {
+		tenPowI = int64(len(tenPow) - 1)
 	}
-	e -= ten_pow_i
-	h1, l1 := bits.Mul64(m1, ten_pow[ten_pow_i])
+	e -= tenPowI
+	h1, l1 := bits.Mul64(m1, tenPow[tenPowI])
 
 	// avoid panic if m2 <= h1
 	if m2 <= h1 {
-		for i, p := range ten_pow {
+		for i, p := range tenPow {
 			if h1 < p {
 				q, r := bits.Div64(h1, l1, p)
 				if r != 0 {
@@ -895,9 +914,9 @@ func vmeDivRem(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64, precision int32
 
 	// FIXME: fix m and r when ten_pow_i was strictly negative
 	if re < -int64(precision) {
-		ten_pow_i = -int64(precision) - re
-		xq, xr := bits.Div64(0, m, ten_pow[ten_pow_i])
-		m = xq * ten_pow[ten_pow_i]
+		tenPowI = -int64(precision) - re
+		xq, xr := bits.Div64(0, m, tenPow[tenPowI])
+		m = xq * tenPow[tenPowI]
 		r += xr * m2
 	}
 	re += e2
@@ -918,8 +937,8 @@ func vmeRound(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 		v &= ^uint64(loss)
 
 		if i := e + int64(places); i < 0 {
-			if -i < int64(len(ten_pow)) {
-				p := ten_pow[int(-i)]
+			if -i < int64(len(tenPow)) {
+				p := tenPow[int(-i)]
 
 				if (m << 1) < p {
 					return sign, 0, 0 // Zero
@@ -955,8 +974,8 @@ func vmeRoundBank(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 		v &= ^uint64(loss)
 
 		if i := e + int64(places); i < 0 {
-			if -i < int64(len(ten_pow)) {
-				p := ten_pow[int(-i)]
+			if -i < int64(len(tenPow)) {
+				p := tenPow[int(-i)]
 
 				if (m << 1) < p {
 					return sign, 0, 0 // Zero
@@ -992,8 +1011,8 @@ func vmeRoundCeil(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 		v &= ^uint64(loss)
 
 		if i := e + int64(places); i < 0 {
-			if -i < int64(len(ten_pow)) {
-				p := ten_pow[int(-i)]
+			if -i < int64(len(tenPow)) {
+				p := tenPow[int(-i)]
 
 				if (m << 1) < p {
 					if v&sign == 0 {
@@ -1035,8 +1054,8 @@ func vmeRoundFloor(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 		v &= ^uint64(loss)
 
 		if i := e + int64(places); i < 0 {
-			if -i < int64(len(ten_pow)) {
-				p := ten_pow[int(-i)]
+			if -i < int64(len(tenPow)) {
+				p := tenPow[int(-i)]
 
 				if (m << 1) < p {
 					if v&sign != 0 {
@@ -1091,8 +1110,8 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 
 		// normalize mantissa if negative exponent
 		for e2 < 0 {
-			hi, lo := bits.Mul64(m2, ten_pow[len(ten_pow)-1])
-			e -= int64(len(ten_pow) - 1)
+			hi, lo := bits.Mul64(m2, tenPow[len(tenPow)-1])
+			e -= int64(len(tenPow) - 1)
 			if (lo & sign) != 0 {
 				hi++
 			}
@@ -1101,9 +1120,9 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 		}
 		// normalize mantissa if too big exponent
 		for e2 >= 64 {
-			q, r := bits.Div64(m2, 0, ten_pow[len(ten_pow)-1])
-			e += int64(len(ten_pow) - 1)
-			if r >= (ten_pow[len(ten_pow)-1] >> 1) {
+			q, r := bits.Div64(m2, 0, tenPow[len(tenPow)-1])
+			e += int64(len(tenPow) - 1)
+			if r >= (tenPow[len(tenPow)-1] >> 1) {
 				q++
 			}
 			m2 = q
@@ -1112,13 +1131,13 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 		if e2 > 0 {
 			hi := m2 >> (64 - e2)
 			lo := m2 << e2
-			i := len(ten_pow) - 1
-			for i >= 0 && ten_pow[i] > hi {
+			i := len(tenPow) - 1
+			for i >= 0 && tenPow[i] > hi {
 				i--
 			}
-			q, r := bits.Div64(hi, lo, ten_pow[i+1])
+			q, r := bits.Div64(hi, lo, tenPow[i+1])
 			e += int64(i + 1)
-			if r > 0 && r >= (ten_pow[i+1]>>1) {
+			if r > 0 && r >= (tenPow[i+1]>>1) {
 				q++
 			}
 			if r != 0 {

@@ -788,16 +788,16 @@ func TestIsEqual(t *testing.T) {
 	if !d.Equal(0) {
 		t.Errorf(`Null should be == to 0, d == 0 is %t`, d.Equal(0))
 	}
-	if !d.GreatherThanOrEqual(0) {
-		t.Errorf(`Null should be >= to 0, d == 0 is %t`, d.GreatherThanOrEqual(0))
+	if !d.GreaterThanOrEqual(0) {
+		t.Errorf(`Null should be >= to 0, d == 0 is %t`, d.GreaterThanOrEqual(0))
 	}
 
 	d = Zero
 	if !d.Equal(0) {
 		t.Errorf(`Zero should be equal to 0, d == 0 is %t`, d.Equal(0))
 	}
-	if !d.GreatherThanOrEqual(0) {
-		t.Errorf(`Zero should be >= to 0, d == 0 is %t`, d.GreatherThanOrEqual(0))
+	if !d.GreaterThanOrEqual(0) {
+		t.Errorf(`Zero should be >= to 0, d == 0 is %t`, d.GreaterThanOrEqual(0))
 	}
 }
 
@@ -1376,19 +1376,19 @@ func TestCompare(t *testing.T) {
 		}
 	}
 }
-func TestLessOrGreather(t *testing.T) {
+func TestLessOrGreater(t *testing.T) {
 	for _, d1 := range [...]Decimal{0, Zero} {
-		if d2 := Zero; d1.GreatherThan(d2) {
-			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		if d2 := Zero; d1.GreaterThan(d2) {
+			t.Errorf("%v.GreaterThan(%v) should be false but = %v", d1, d2, d1.GreaterThan(d2))
 		}
-		if d2 := NearZero; d1.GreatherThan(d2) {
-			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		if d2 := NearZero; d1.GreaterThan(d2) {
+			t.Errorf("%v.GreathrThan(%v) should be false but = %v", d1, d2, d1.GreaterThan(d2))
 		}
-		if d2 := NearPositiveZero; d1.GreatherThan(d2) {
-			t.Errorf("%v.GreatherThan(%v) should be false but = %v", d1, d2, d1.GreatherThan(d2))
+		if d2 := NearPositiveZero; d1.GreaterThan(d2) {
+			t.Errorf("%v.GreaterThan(%v) should be false but = %v", d1, d2, d1.GreaterThan(d2))
 		}
-		if d2 := NearNegativeZero; !d1.GreatherThan(d2) {
-			t.Errorf("%v.GreatherThan(%v) should be true but = %v", d1, d2, d1.GreatherThan(d2))
+		if d2 := NearNegativeZero; !d1.GreaterThan(d2) {
+			t.Errorf("%v.GreaterThan(%v) should be true but = %v", d1, d2, d1.GreaterThan(d2))
 		}
 
 		if d2 := Zero; d1.LessThan(d2) {
@@ -1700,6 +1700,53 @@ func TestSign(t *testing.T) {
 	}
 }
 
+func TestStringFixed(t *testing.T) {
+	var d Decimal
+
+	if d.StringFixed(0) != "0" {
+		t.Errorf(`d.StringFixed(0) should be "0", but is %v`, d.StringFixed(0))
+	}
+	if d.StringFixed(1) != "0.0" {
+		t.Errorf(`d.StringFixed(1) should be "0.0", but is %v`, d.StringFixed(1))
+	}
+	if d.StringFixed(2) != "0.00" {
+		t.Errorf(`d.StringFixed(2) should be "0.00", but is %v`, d.StringFixed(2))
+	}
+
+	d = New(123, -2)
+
+	if d.StringFixed(1) != "1.2" {
+		t.Errorf(`d.StringFixed(1) should be "1.2", but is %v`, d.StringFixed(1))
+	}
+	if d.StringFixed(2) != "1.23" {
+		t.Errorf(`d.StringFixed(2) should be "1.23", but is %v`, d.StringFixed(2))
+	}
+	if d.StringFixed(3) != "1.230" {
+		t.Errorf(`d.StringFixed(3) should be "1.230", but is %v`, d.StringFixed(3))
+	}
+
+	if s := New(0, 0).StringFixedBank(0); s != "0" {
+		t.Errorf(`New(0).StringFixedBank(2) should be "0", but is %v`, s)
+	}
+	if s := New(0, 0).StringFixedBank(2); s != "0.00" {
+		t.Errorf(`New(0, 0).StringFixedBank(2) should be "0.00", but is %v`, s)
+	}
+	if s := New(545, -2).StringFixedBank(0); s != "5" {
+		t.Errorf(`New(545, -2).StringFixedBank(0) should be "5", but is %v`, s)
+	}
+	if s := New(545, -2).StringFixedBank(1); s != "5.4" {
+		t.Errorf(`New(545, -2).StringFixedBank(1) should be "5.4", but is %v`, s)
+	}
+	if s := New(545, -2).StringFixedBank(2); s != "5.45" {
+		t.Errorf(`New(545, -2).StringFixedBank(2) should be "5.45", but is %v`, s)
+	}
+	if s := New(545, -2).StringFixedBank(3); s != "5.450" {
+		t.Errorf(`New(545, -2).StringFixedBank(3) should be "5.450", but is %v`, s)
+	}
+	if s := New(545, 0).StringFixedBank(-1); s != "540" {
+		t.Errorf(`New(545, 0).StringFixedBank(-1) should be "540", but is %v`, s)
+	}
+}
 func TestTranscendantalFunctions(t *testing.T) {
 	sqrt2 := New(2, 0).Sqrt()
 	_sqrt2 := New(141421356237309514, -17) // FIXME: since exponent can only be between -16 and +15, mantissa will be truncated
