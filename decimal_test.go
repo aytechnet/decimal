@@ -107,9 +107,6 @@ func TestNull(t *testing.T) {
 	if d.IfNull(3) != 3 {
 		t.Error(`Null.IfNull(3) return bad value`)
 	}
-	if d.Bytes() != nil {
-		t.Error(`Null.String() should be '0'`)
-	}
 	if d.String() != "0" {
 		t.Error(`Null.String() should be '0'`)
 	}

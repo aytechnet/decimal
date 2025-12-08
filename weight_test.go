@@ -7,19 +7,16 @@ import (
 func TestWeightConversions(t *testing.T) {
 	var w0 Weight
 
-	if w0.String() != "0" {
+	if w0.String() != "0kg" {
 		t.Errorf(`w0.String() should be equal to 0 but w0 = %v`, w0)
 	}
-	if w0.Bytes() != nil {
-		t.Errorf(`w0.Bytes() should be equal to nil but w0 = %v`, w0.Bytes())
-	}
 
-	w1, err := NewWeightFromString("1mcg")
+	w1, err := NewWeightFromString("10mcg")
 	if err != nil {
-		t.Errorf(`NewWeightFromString("1mcg") has result = %v and error = %v`, w1, err)
+		t.Errorf(`NewWeightFromString("10mcg") has result = %v and error = %v`, w1, err)
 	}
-	if w1.String() != "1µg" {
-		t.Errorf(`w1 should be equal to 1µg but w1 = %v`, w1)
+	if w1.String() != "10µg" {
+		t.Errorf(`w1 should be equal to 10µg but w1 = %v`, w1)
 	}
 
 	w1, err = NewWeightFromString("0g")
@@ -30,25 +27,25 @@ func TestWeightConversions(t *testing.T) {
 		t.Errorf(`w1 should be equal to 0g but w1 = %v (%016x)`, w1, uint64(w1))
 	}
 
-	w2, err := NewWeightFromString("1ozt")
+	w2, err := NewWeightFromString("-1ozt")
 	if err != nil {
-		t.Errorf(`NewWeightFromString("1ozt") has result = %v and error = %v`, w2, err)
+		t.Errorf(`NewWeightFromString("-1ozt") has result = %v and error = %v`, w2, err)
 	}
-	if w2.String() != "1 oz t" {
-		t.Errorf(`w2 should be equal to 1 oz t but w1 = %v (%016x)`, w2, uint64(w2))
+	if w2.String() != "-1 oz t" {
+		t.Errorf(`w2 should be equal to -1 oz t but w1 = %v (%016x)`, w2, uint64(w2))
 	}
 
-	w3 := w1.Add(w2)
+	w3 := w1.Add(w2.Abs())
 	if w3.String() != "31.1034768g" {
 		t.Errorf(`w3 should be equal to 31.1034768g (1 oz t) but w3 = %v (%016x)`, w3, uint64(w3))
 	}
 
-	w4 := w2.Sub(w3)
+	w4 := w2.Add(w3)
 	if w4.String() != "0 oz t" {
 		t.Errorf(`w4 should be equal to 0 oz t but w4 = %v (%016x)`, w4, uint64(w4))
 	}
 
-	w4, err = NewWeightFromString("11ozz")
+	_, err = NewWeightFromBytes([]byte("11ozz"))
 	if err == nil {
 		t.Errorf(`11ozz should have conversion error, error is not set`)
 	}
@@ -56,11 +53,23 @@ func TestWeightConversions(t *testing.T) {
 
 func TestWeightAdd(t *testing.T) {
 	w1, err := NewWeightFromString(".00123")
+	if !w1.IsExact() {
+		t.Errorf(`w1 should be exact but w1 = %v`, w1)
+	}
 	if err != nil {
 		t.Errorf(`NewWeightFromString(".00123") has result = %v and error = %v`, w1, err)
 	}
 
-	w2, err := NewWeightFromString("~101g")
+	ws, _ := NewWeightFromDecimal(1, "pg")
+	w1 = w1.Add(ws.Div(10000000000000000))
+	if w1.IsExact() {
+		t.Errorf(`w1 should be exact but w1 = %v`, w1)
+	}
+
+	w2, err := NewWeightFromString("101g")
+	if !w2.IsExact() {
+		t.Errorf(`w2 should be exact but w2 = %v`, w2)
+	}
 	if err != nil {
 		t.Errorf(`NewFromString("~101g") has result = %v and error = %v`, w2, err)
 	}
@@ -111,6 +120,44 @@ func TestWeightMul(t *testing.T) {
 	if w2.String() != "121mg" {
 		t.Errorf(`w2 should be equal to 121mg but w2 = %v`, w2)
 	}
+
+	w3 := w2.Mul(100000000000000000).Mul(100000000000000000)
+	if !w3.IsInfinite() {
+		t.Errorf(`w3 should be infinite but w3 = %v`, w3)
+	}
+	if w3.String() != "+Inf" {
+		t.Errorf(`w3 should be infinite but w3 = %v`, w3)
+	}
+}
+
+func TestWeightDiv(t *testing.T) {
+	w1, err := NewWeightFromString("121mg")
+	if err != nil {
+		t.Errorf(`NewWeightFromString("121mg") has result = %v and error = %v`, w1, err)
+	}
+
+	w2 := w1.Div(11)
+	if w2.Unit() != "mg" {
+		t.Errorf(`w2 unit should be equal to mg but w2 unit = %v`, w2.Unit())
+	}
+	if w2.String() != "11mg" {
+		t.Errorf(`w2 should be equal to 11mg but w2 = %v`, w2)
+	}
+
+	w3 := w1.Div(3)
+	if w3.String() != "~40.33333333333333mg" {
+		t.Errorf(`w3 should be equal to ~40.33mg but w3 = %v`, w3)
+	}
+
+	w2 = w1.Mul(2).Div(3).Add(w3)
+	if w2.String() != "~121mg" {
+		t.Errorf(`w2 should be equal to ~121mg but w2 = %v`, w2)
+	}
+
+	w2 = w1.Div(0)
+	if !w2.IsNaN() {
+		t.Errorf(`w2 should be NaN but w2 = %v`, w2)
+	}
 }
 
 func TestWeightJSONMarshaling(t *testing.T) {
@@ -147,17 +194,16 @@ func TestWeightJSONMarshaling(t *testing.T) {
 	}
 }
 
-func TestWeightHelpers(t *testing.T) {
+func TestWeighNull(t *testing.T) {
 	var null Weight
-	zero, _ := NewWeight(0, 0, "kg")
-	oneKg, _ := NewWeight(1, 0, "kg")
-	negOneKg, _ := NewWeight(-1, 0, "kg")
+	w0, _ := NewWeight(0, 0, "kg")
+	w1, _ := NewWeightFromDecimal(1, "g")
 
 	// IsNull
 	if !null.IsNull() {
 		t.Error("Null should be Null")
 	}
-	if zero.IsNull() {
+	if w0.IsNull() {
 		t.Error("Zero should not be Null")
 	}
 
@@ -165,66 +211,95 @@ func TestWeightHelpers(t *testing.T) {
 	if null.IsSet() {
 		t.Error("Null should not be Set")
 	}
-	if !zero.IsSet() {
+	if !w0.IsSet() {
 		t.Error("Zero should be Set")
 	}
 
 	// IfNull
-	if null.IfNull(zero) != zero {
+	if null.IfNull(w0) != w0 {
 		t.Error("IfNull should return default for Null")
 	}
-	if oneKg.IfNull(zero) != oneKg {
+	if w1.IfNull(w0) != w1 {
 		t.Error("IfNull should return value for non-Null")
 	}
+}
+
+func TestWeighZero(t *testing.T) {
+	var null Weight
+	w0, _ := NewWeight(0, 0, "kg")
+	w1, _ := NewWeightFromDecimal(1, "g")
+	wNeg1, _ := NewWeightFromDecimal(-1, "kg")
 
 	// IsExactlyZero
-	if !zero.IsExactlyZero() {
+	if !w0.IsExactlyZero() {
 		t.Error("Zero should be ExactlyZero")
 	}
 	if !null.IsExactlyZero() {
 		t.Error("Null should be ExactlyZero")
 	}
-	if oneKg.IsExactlyZero() {
+	if w1.IsExactlyZero() {
 		t.Error("1kg should not be ExactlyZero")
+	}
+	if wNeg1.IsExactlyZero() {
+		t.Error("-1kg should not be ExactlyZero")
 	}
 
 	// IsZero
-	if !zero.IsZero() {
+	if !w0.IsZero() {
 		t.Error("Zero should be Zero")
 	}
 	if !null.IsZero() {
 		t.Error("Null should be Zero")
 	}
-	// Test NearZero logic if applicable to Weight (assuming similar bit structure)
-	// ...
+	if w1.IsZero() {
+		t.Error("1kg should not be Zero")
+	}
+	if wNeg1.IsZero() {
+		t.Error("-1kg should not be Zero")
+	}
+}
+
+func TestWeighSign(t *testing.T) {
+	var null Weight
+	w0, _ := NewWeight(0, 0, "kg")
+	w1, _ := NewWeightFromDecimal(1, "g")
+	wNeg1, _ := NewWeightFromDecimal(-1, "kg")
+
+	// Sign
+	if null.Sign() != 0 {
+		t.Error("Null should have sign 0")
+	}
+	if w0.Sign() != 0 {
+		t.Error("Zero should have sign 0")
+	}
+	if w1.Sign() != 1 {
+		t.Error("1kg should have sign 1")
+	}
+	if wNeg1.Sign() != -1 {
+		t.Error("-1kg should have sign -1")
+	}
 
 	// IsPositive
-	if !oneKg.IsPositive() {
+	if !w1.IsPositive() {
 		t.Error("1kg should be Positive")
 	}
-	if negOneKg.IsPositive() {
+	if wNeg1.IsPositive() {
 		t.Error("-1kg should not be Positive")
 	}
-	if zero.IsPositive() {
+	if w0.IsPositive() {
 		t.Error("Zero should not be Positive")
 	}
 
 	// IsNegative
-	if !negOneKg.IsNegative() {
+	if !wNeg1.IsNegative() {
 		t.Error("-1kg should be Negative")
 	}
-	if oneKg.IsNegative() {
+	if w1.IsNegative() {
 		t.Error("1kg should not be Negative")
 	}
-	if zero.IsNegative() {
+	if w0.IsNegative() {
 		t.Error("Zero should not be Negative")
 	}
-
-	// IsNaN
-	// Construct a NaN weight manually if needed or use existing constant if compatible
-	// Assuming NaN constant from decimal package works if casted, but Weight has different layout?
-	// Weight uses 53 bits mantissa vs 57 for Decimal.
-	// Let's verify IsNaN implementation details.
 }
 
 func TestWeightCompare(t *testing.T) {

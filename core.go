@@ -454,10 +454,10 @@ func vmeUnitOrMagicFromBytes(b []byte, v, m uint64, e int64, units []unit) (uint
 	return v, m, e, nil
 }
 
-// bytes appends decimal representation of a VME tuple to b
+// vmetBytesTo appends decimal representation of a VME tuple to b
 // ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number
 // str is a boolean value to add double quote before and after output
-func vmetBytes(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str bool) []byte {
+func vmetBytesTo(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str bool) []byte {
 	if str {
 		b = append(b, '"')
 	}
@@ -504,7 +504,14 @@ func vmetBytes(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str b
 		}
 	} else {
 		if v&loss != 0 {
-			b = veMagicBytes(b, v, e, ext)
+			b = veMagicBytesTo(b, v, e, ext)
+			// avoid unit if infinity or not-a-number
+			if e == math.MaxInt64 || e != 0 {
+				if str {
+					b = append(b, '"')
+				}
+				return b
+			}
 		} else {
 			b = append(b, '0')
 			if places > 0 {
@@ -530,7 +537,7 @@ func vmetBytes(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str b
 
 // veMagicBytes appends decimal representation of a VME magic tuple to b
 // ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number
-func veMagicBytes(b []byte, v uint64, e int64, ext bool) []byte {
+func veMagicBytesTo(b []byte, v uint64, e int64, ext bool) []byte {
 	if ext {
 		if e == math.MaxInt64 {
 			if v&sign != 0 {
@@ -879,8 +886,8 @@ func vmeDivRem(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64, precision int32
 		}
 	}
 
-	v = (v1|v2)&loss | (v1^v2)&sign
-	e = e1 - e2 // - int64(precision)
+	v = v1 & ^uint64(sign|loss) | (v1|v2)&loss | (v1^v2)&sign // initialize v with v1 unit
+	e = e1 - e2                                               // - int64(precision)
 
 	re = -int64(precision)
 	tenPowI := e + int64(precision)

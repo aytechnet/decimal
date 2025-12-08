@@ -894,7 +894,7 @@ func RequireFromString(value string) Decimal {
 	}
 }
 
-// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+// UnmarshalJSON implements the json.Unmarshaler interface.
 func (d *Decimal) UnmarshalJSON(b []byte) error {
 	if v, m, e, err := vmeFromBytes(b, nil); err == nil {
 		*d = vmeAsDecimal(v, m, e)
@@ -919,8 +919,20 @@ func (d Decimal) String() string {
 	if d == Null {
 		return "0"
 	} else {
-		return string(d.Bytes())
+		return string(d.BytesTo(nil))
 	}
+}
+
+// BytesTo appends the string representation of the decimal to a slice of byte, if the decimal is Null it appends 0.
+func (d Decimal) BytesTo(b []byte) []byte {
+	v, m, e := d.vme()
+
+	if b == nil {
+		b = make([]byte, 0, 20)
+	}
+
+	// the maximal length of decimal representation in bytes in such conditions is 20
+	return vmetBytesTo(b, v, m, e, 0, nil, true, false)
 }
 
 // StringFixed returns a rounded fixed-point string with places digits after
@@ -936,15 +948,35 @@ func (d Decimal) String() string {
 //	NewFromFloat(5.45).StringFixed(3) // output: "5.450"
 //	NewFromFloat(545).StringFixed(-1) // output: "550"
 func (d Decimal) StringFixed(places int32) string {
+	return string(d.IfNull(Zero).BytesToFixed(nil, places))
+}
+
+func (d Decimal) BytesToFixed(b []byte, places int32) []byte {
 	v, m, e := d.vme()
 
 	v, m, e = vmeRound(v, m, e, places)
 
-	if places < 0 {
-		return string(vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false))
-	} else {
-		return string(vmetBytes(make([]byte, 0, 20), v, m, e, places, nil, true, false))
+	if b == nil {
+		b = make([]byte, 0, 20)
 	}
+	if places < 0 {
+		places = 0
+	}
+
+	return vmetBytesTo(b, v, m, e, places, nil, true, false)
+}
+
+func (d Decimal) BytesToFixedBank(b []byte, places int32) []byte {
+	v, m, e := d.vme()
+
+	v, m, e = vmeRoundBank(v, m, e, places)
+
+	// the maximal length of decimal representation in bytes in such conditions is 20
+	if b == nil {
+		b = make([]byte, 0, 20)
+	}
+
+	return vmetBytesTo(b, v, m, e, places, nil, true, false)
 }
 
 // StringFixedBank returns a banker rounded fixed-point string with places digits
@@ -965,21 +997,9 @@ func (d Decimal) StringFixedBank(places int32) string {
 	v, m, e = vmeRoundBank(v, m, e, places)
 
 	if places < 0 {
-		return string(vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false))
+		return string(vmetBytesTo(make([]byte, 0, 20), v, m, e, 0, nil, true, false))
 	} else {
-		return string(vmetBytes(make([]byte, 0, 20), v, m, e, places, nil, true, false))
-	}
-}
-
-// Bytes returns the string representation of the decimal as a slice of byte, but nil if the decimal is Null.
-func (d Decimal) Bytes() (b []byte) {
-	if d == Null {
-		return nil
-	} else {
-		v, m, e := d.vme()
-
-		// the maximal length of decimal representation in bytes in such conditions is 20
-		return vmetBytes(make([]byte, 0, 20), v, m, e, 0, nil, true, false)
+		return string(vmetBytesTo(make([]byte, 0, 20), v, m, e, places, nil, true, false))
 	}
 }
 
@@ -987,7 +1007,7 @@ func (d Decimal) Bytes() (b []byte) {
 func (d Decimal) MarshalJSON() ([]byte, error) {
 	v, m, e := d.vme()
 
-	return vmetBytes(nil, v, m, e, 0, nil, false, false), nil
+	return vmetBytesTo(nil, v, m, e, 0, nil, false, false), nil
 }
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
@@ -1057,7 +1077,7 @@ func (d *Decimal) UnmarshalText(text []byte) error {
 
 // MarshalText implements the encoding.TextMarshaler interface for XML serialization.
 func (d Decimal) MarshalText() (text []byte, err error) {
-	return d.Bytes(), nil
+	return d.BytesTo(nil), nil
 }
 
 // GobEncode implements the gob.GobEncoder interface for gob serialization.

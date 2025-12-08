@@ -193,6 +193,15 @@ func (w Weight) Unit() string {
 	return weightUnits[(u&weightTBitmask)>>weightBitT].u
 }
 
+// Abs returns the absolute value of the weight.
+func (w Weight) Abs() Weight {
+	if w < 0 {
+		return -w
+	} else {
+		return w
+	}
+}
+
 // Add returns w1 + w2 using w1 unit.
 //
 // Example:
@@ -253,6 +262,24 @@ func (w Weight) Mul(d Decimal) Weight {
 	return vmeAsWeight(vmeMul(v1, m1, e1, v2, m2, e2))
 }
 
+// Div returns w / d using w unit. If it doesn't divide exactly, the result will have DivisionPrecision digits after the decimal point and loss bit will be set.
+func (w Weight) Div(d Decimal) Weight {
+	v1, m1, e1, _ := w.vmet()
+	v2, m2, e2 := d.vme()
+
+	v, m, e, rem, _ := vmeDivRem(v1, m1, e1, v2, m2, e2, int32(DivisionPrecision))
+
+	if rem != 0 {
+		v |= loss
+
+		// fix m so that the result is the nearest, like in shopspring/decimal
+		if (rem << 1) >= m2 {
+			m++
+		}
+	}
+	return vmeAsWeight(v, m, e)
+}
+
 // String returns the string representation of the weight with the fixed point and unit.
 //
 // Example:
@@ -264,33 +291,25 @@ func (w Weight) Mul(d Decimal) Weight {
 //
 //	-12.345kg
 func (w Weight) String() string {
-	if w == Null {
-		return "0"
-	} else {
-		return string(w.Bytes())
-	}
+	return string(w.BytesTo(nil))
 }
 
-// Bytes returns the string representation of the decimal as a slice of byte, but nil if the decimal is Null.
-func (w Weight) Bytes() (b []byte) {
-	if w == Null {
-		return nil
-	} else {
-		v, m, e, t := w.vmet()
+// BytesTo appends the string representation of the decimal to a slice of byte, if the decimal is Null it appends 0.
+func (w Weight) BytesTo(b []byte) []byte {
+	v, m, e, t := w.vmet()
 
-		// the maximal length of decimal representation in bytes in such conditions is 20
-		return vmetBytes(make([]byte, 0, 22), v, m, e, 0, t, true, false)
-	}
+	// the maximal length of decimal representation in bytes in such conditions is 20
+	return vmetBytesTo(b, v, m, e, 0, t, true, false)
 }
 
 // MarshalJSON implements the json.Marshaler interface.
 func (w Weight) MarshalJSON() ([]byte, error) {
 	v, m, e, t := w.vmet()
 
-	return vmetBytes(nil, v, m, e, 0, t, false, false), nil
+	return vmetBytesTo(nil, v, m, e, 0, t, false, false), nil
 }
 
-// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+// UnmarshalJSON implements the json.Unmarshaler interface.
 func (w *Weight) UnmarshalJSON(b []byte) error {
 	if v, m, e, err := vmeFromBytes(b, weightUnits[:]); err == nil {
 		*w = vmeAsWeight(v, m, e)
@@ -314,7 +333,7 @@ func (w *Weight) UnmarshalText(text []byte) error {
 
 // MarshalText implements the encoding.TextMarshaler interface for XML serialization.
 func (w Weight) MarshalText() (text []byte, err error) {
-	return w.Bytes(), nil
+	return w.BytesTo(nil), nil
 }
 
 // IsNull return
@@ -376,7 +395,7 @@ func (w Weight) IsZero() bool {
 
 // IsExact return true if a weight has its loss bit not set, ie it has not lost its precision during computation or conversion.
 func (w Weight) IsExact() bool {
-	return uint64(w)&loss == 0
+	return w.Abs()&loss == 0
 }
 
 // IsPositive return
