@@ -204,6 +204,23 @@ func (d Decimal) Abs() Decimal {
 
 // Add returns d1 + d2.
 func (d1 Decimal) Add(d2 Decimal) Decimal {
+	// Fast path: both operands are int64-encoded integers in [-MaxInt, MaxInt] (Null included as 0).
+	// Magic encodings (Zero, NaN, Inf, ~0, …) all sit outside this range, so the comparison alone filters them out.
+	if -MaxInt <= int64(d1) && int64(d1) <= MaxInt && -MaxInt <= int64(d2) && int64(d2) <= MaxInt {
+		// |d1| + |d2| ≤ 2*MaxInt < 2^58 — no int64 overflow possible.
+		sum := int64(d1) + int64(d2)
+		if -MaxInt <= sum && sum <= MaxInt {
+			if sum == 0 {
+				// preserve the Null + Null = Null invariant; any other zero result is an explicit Zero
+				if d1 == 0 && d2 == 0 {
+					return Null
+				}
+				return Zero
+			}
+			return Decimal(sum)
+		}
+	}
+
 	v1, m1, e1 := d1.vme()
 	v2, m2, e2 := d2.vme()
 
@@ -217,6 +234,34 @@ func (d1 Decimal) Sub(d2 Decimal) Decimal {
 
 // Mul returns d1 * d2.
 func (d1 Decimal) Mul(d2 Decimal) Decimal {
+	// Fast path: both operands are int64-encoded integers in [-MaxInt, MaxInt] and their product fits.
+	// bits.Mul64 on the absolute values catches overflow exactly, so the full integer range is usable
+	// (not just the conservative sqrt(MaxInt) gate).
+	if -MaxInt <= int64(d1) && int64(d1) <= MaxInt && -MaxInt <= int64(d2) && int64(d2) <= MaxInt {
+		n1, n2 := int64(d1), int64(d2)
+		negative := (n1 < 0) != (n2 < 0)
+
+		a1 := uint64(n1)
+		if n1 < 0 {
+			a1 = uint64(-n1)
+		}
+		a2 := uint64(n2)
+		if n2 < 0 {
+			a2 = uint64(-n2)
+		}
+
+		hi, lo := bits.Mul64(a1, a2)
+		if hi == 0 && lo <= MaxInt {
+			if lo == 0 {
+				return Zero
+			}
+			if negative {
+				return -Decimal(lo)
+			}
+			return Decimal(lo)
+		}
+	}
+
 	v1, m1, e1 := d1.vme()
 	v2, m2, e2 := d2.vme()
 

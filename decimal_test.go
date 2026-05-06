@@ -1229,6 +1229,14 @@ func TestMulInfinity(t *testing.T) {
 }
 
 func TestMul(t *testing.T) {
+	// fast-path: small int * 0 → Zero (covers the prod == 0 branch)
+	if d := Decimal(5).Mul(0); d != Zero {
+		t.Errorf(`5 * 0 should be Zero, got %v`, d)
+	}
+	if d := Decimal(0).Mul(7); d != Zero {
+		t.Errorf(`0 * 7 should be Zero, got %v`, d)
+	}
+
 	d1 := New(1230, -3)
 	d2 := New(999, 2)
 	d := d1.Mul(d2)
@@ -2841,6 +2849,81 @@ func BenchmarkDecimalRoundCeil(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		s.RoundCeil(1)
+	}
+}
+
+// BenchmarkPublicDecimalCart simulates a shopping-cart total: 8 line items, each
+// (quantity * unit_price), summed into a running total, then a tax rate applied.
+// Quantities are integers (fast-path Mul); unit prices and tax rate have decimals
+// (slow-path Mul); the per-line subtotal then sums into a non-trivial Decimal (slow-path Add).
+func BenchmarkPublicDecimalCart(b *testing.B) {
+	qtys := [...]Decimal{2, 1, 3, 4, 1, 2, 5, 1}
+	prices := [...]Decimal{
+		New(1299, -2),  // 12.99
+		New(4995, -2),  // 49.95
+		New(750, -2),   // 7.50
+		New(199, -2),   // 1.99
+		New(1, 0),      // 1
+		New(8995, -2),  // 89.95
+		New(450, -2),   // 4.50
+		New(15000, -2), // 150.00
+	}
+	taxRate, _ := NewFromString("1.0875")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var total Decimal
+		for j := range qtys {
+			total = total.Add(qtys[j].Mul(prices[j]))
+		}
+		_ = total.Mul(taxRate)
+	}
+}
+
+// BenchmarkPublicDecimalIntCounter simulates a hot-loop counter: incrementing a Decimal
+// by an integer step. Pure fast-path Add.
+func BenchmarkPublicDecimalIntCounter(b *testing.B) {
+	var d Decimal
+
+	for i := 0; i < b.N; i++ {
+		d = d.Add(7)
+	}
+	_ = d
+}
+
+// BenchmarkPublicDecimalIntMatrixMul simulates dot-product of two integer-valued vectors.
+// Pure fast-path: Mul of integers, Add of integers (the running sum stays an integer).
+func BenchmarkPublicDecimalIntMatrixMul(b *testing.B) {
+	xs := [...]Decimal{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	ys := [...]Decimal{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var sum Decimal
+		for j := range xs {
+			sum = sum.Add(xs[j].Mul(ys[j]))
+		}
+		_ = sum
+	}
+}
+
+func BenchmarkPublicDecimalAddInt(b *testing.B) {
+	var d1 Decimal = 212
+	var d2 Decimal = 31
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = d1.Add(d2)
+	}
+}
+
+func BenchmarkPublicDecimalMulInt(b *testing.B) {
+	var d1 Decimal = 212
+	var d2 Decimal = 31
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = d1.Mul(d2)
 	}
 }
 
