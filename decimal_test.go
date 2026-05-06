@@ -616,6 +616,10 @@ func TestNewFromFloat32(t *testing.T) {
 		t.Errorf(`NewFromFloat32(0.01) should be 0.01, d = %v`, d)
 	}
 
+	if d := NewFromFloat32(float32(math.Copysign(0, -1))); d != NearNegativeZero {
+		t.Errorf(`NewFromFloat32(-0) should be NearNegativeZero, d = %v`, d)
+	}
+
 	if d := NewFromFloat32(float32(math.Inf(0))); d != PositiveInfinity {
 		t.Errorf(`NewFromFloat32(+Inf) should be +Inf, d = %v`, d)
 	}
@@ -2460,6 +2464,63 @@ func TestNewFromIntEdges(t *testing.T) {
 	}
 }
 
+func TestNewFromFloatExactValues(t *testing.T) {
+	// regression test: powers of 2 (1, 2, 4, 8, …) used to collapse to ~0 because the old
+	// fixFloatMantissa zeroed out the mantissa when the high 32 bits were empty.
+	for _, c := range []struct {
+		in   float64
+		want Decimal
+	}{
+		{1, 1},
+		{2, 2},
+		{4, 4},
+		{8, 8},
+		{16, 16},
+		{1024, 1024},
+		{-1, -1},
+		{-2, -2},
+		{0.5, New(5, -1)},
+		{0.25, New(25, -2)},
+		{1.25, New(125, -2)},
+		{2.5, New(25, -1)},
+		{3.75, New(375, -2)},
+		{0.1, New(1, -1)},
+		{0.2, New(2, -1)},
+		{1.1, New(11, -1)},
+		{1e10, New(1, 10)},
+		{1.23e15, New(123, 13)},
+	} {
+		got := NewFromFloat(c.in)
+		if got != c.want {
+			t.Errorf(`NewFromFloat(%v): want %v (0x%016x), got %v (0x%016x)`, c.in, c.want, uint64(c.want), got, uint64(got))
+		}
+		if !got.IsExact() {
+			t.Errorf(`NewFromFloat(%v) should be exact (no loss bit), got %v`, c.in, got)
+		}
+	}
+
+	// the NewFromFloat64Exact(_, false) variant must mark the loss bit
+	if d := NewFromFloat64Exact(2.5, false); d.IsExact() {
+		t.Errorf(`NewFromFloat64Exact(2.5, false) should have loss bit set, got %v`, d)
+	}
+
+	// signed -0 must round-trip to NearNegativeZero
+	if d := NewFromFloat(math.Copysign(0, -1)); d != NearNegativeZero {
+		t.Errorf(`NewFromFloat(-0) should be NearNegativeZero, got %v`, d)
+	}
+
+	// extreme ranges
+	if d := NewFromFloat(1e308); d != PositiveInfinity {
+		t.Errorf(`NewFromFloat(1e308) should overflow to +Inf, got %v`, d)
+	}
+	if d := NewFromFloat(-1e308); d != NegativeInfinity {
+		t.Errorf(`NewFromFloat(-1e308) should overflow to -Inf, got %v`, d)
+	}
+	if d := NewFromFloat(5e-324); d != NearPositiveZero {
+		t.Errorf(`NewFromFloat(5e-324, smallest subnormal) should underflow to ~+0, got %v`, d)
+	}
+}
+
 func TestNewFromFloat32Edges(t *testing.T) {
 	if d := NewFromFloat32(0); d != Zero {
 		t.Errorf(`NewFromFloat32(0) should be Zero and not %v`, d)
@@ -2625,6 +2686,18 @@ func BenchmarkIsZero(b *testing.B) {
 func BenchmarkDecimalNewFromFloat(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		NewFromFloat(100020003000400050e-17)
+	}
+}
+
+func BenchmarkDecimalNewFromFloatInt(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		NewFromFloat(123456)
+	}
+}
+
+func BenchmarkDecimalNewFromFloatPow2(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		NewFromFloat(4)
 	}
 }
 

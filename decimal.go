@@ -932,7 +932,7 @@ func NewFromFloat(value float64) Decimal {
 	return NewFromFloat64Exact(value, true)
 }
 
-// NewFromFloat converts a float64 to Decimal.
+// NewFromFloat64Exact converts a float64 to Decimal. When exact is false, the loss bit is forced on the result.
 func NewFromFloat64Exact(value float64, exact bool) Decimal {
 	b := math.Float64bits(value)
 	e := int64((b >> 52) & 0x7ff)

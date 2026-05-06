@@ -1097,6 +1097,17 @@ func vmeRoundFloor(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 	}
 }
 
+
+// pow5[i] = 5^i. 5^27 ≈ 7.45e18 fits in uint64 (5^28 overflows).
+var pow5 = [...]uint64{
+	1, 5, 25, 125, 625,
+	3125, 15625, 78125, 390625, 1953125,
+	9765625, 48828125, 244140625, 1220703125, 6103515625,
+	30517578125, 152587890625, 762939453125, 3814697265625, 19073486328125,
+	95367431640625, 476837158203125, 2384185791015625, 11920928955078125, 59604644775390625,
+	298023223876953125, 1490116119384765625, 7450580596923828125,
+}
+
 func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 	var m uint64
 	var e int64
@@ -1108,70 +1119,82 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 		} else {
 			return Zero
 		}
-	} else {
-		// normalize float as a integer mantissa instead of a fraction mantissa
-		m2 = m2 >> z
-		e2 += int64(z) - 63
+	}
 
-		if fixFloatMantissa(&m2) {
+	// normalize float as a integer mantissa instead of a fraction mantissa
+	m2 = m2 >> z
+	e2 += int64(z) - 63
+
+	// Fast U128 path: when m2 * 2^e2 (or m2 * 5^(-e2) for e2 < 0) fits exactly in 57 bits, return
+	// directly. Catches integers, powers of two, and exact dyadic fractions (0.5, 1.25, 2.5, 0.125 …)
+	// — i.e. precisely the cases where the legacy iteration below was incorrect.
+	if e2 >= 0 {
+		if e2 < 64 && m2 < uint64(1)<<uint(64-e2) {
+			lo := m2 << uint(e2)
+			if lo <= MaxInt {
+				return vmeAsDecimal(v, lo, 0)
+			}
+		}
+	} else if k := uint(-e2); k <= 27 {
+		hi, lo := bits.Mul64(m2, pow5[k])
+		if hi == 0 && lo <= MaxInt {
+			return vmeAsDecimal(v, lo, e2)
+		}
+	}
+
+	if fixFloatMantissa(&m2) {
+		v |= loss
+	}
+
+	// normalize mantissa if negative exponent
+	for e2 < 0 {
+		hi, lo := bits.Mul64(m2, tenPow[len(tenPow)-1])
+		e -= int64(len(tenPow) - 1)
+		if (lo & sign) != 0 {
+			hi++
+		}
+		m2 = hi
+		e2 += 64
+	}
+	// normalize mantissa if too big exponent
+	for e2 >= 64 {
+		q, r := bits.Div64(m2, 0, tenPow[len(tenPow)-1])
+		e += int64(len(tenPow) - 1)
+		if r >= (tenPow[len(tenPow)-1] >> 1) {
+			q++
+		}
+		m2 = q
+		e2 -= 64
+	}
+	if e2 > 0 {
+		hi := m2 >> (64 - e2)
+		lo := m2 << e2
+		i := len(tenPow) - 1
+		for i >= 0 && tenPow[i] > hi {
+			i--
+		}
+		q, r := bits.Div64(hi, lo, tenPow[i+1])
+		e += int64(i + 1)
+		if r > 0 && r >= (tenPow[i+1]>>1) {
+			q++
+		}
+		if r != 0 {
 			v |= loss
 		}
-
-		// normalize mantissa if negative exponent
-		for e2 < 0 {
-			hi, lo := bits.Mul64(m2, tenPow[len(tenPow)-1])
-			e -= int64(len(tenPow) - 1)
-			if (lo & sign) != 0 {
-				hi++
-			}
-			m2 = hi
-			e2 += 64
-		}
-		// normalize mantissa if too big exponent
-		for e2 >= 64 {
-			q, r := bits.Div64(m2, 0, tenPow[len(tenPow)-1])
-			e += int64(len(tenPow) - 1)
-			if r >= (tenPow[len(tenPow)-1] >> 1) {
-				q++
-			}
-			m2 = q
-			e2 -= 64
-		}
-		if e2 > 0 {
-			hi := m2 >> (64 - e2)
-			lo := m2 << e2
-			i := len(tenPow) - 1
-			for i >= 0 && tenPow[i] > hi {
-				i--
-			}
-			q, r := bits.Div64(hi, lo, tenPow[i+1])
-			e += int64(i + 1)
-			if r > 0 && r >= (tenPow[i+1]>>1) {
-				q++
-			}
-			if r != 0 {
-				v |= loss
-			}
-			m = q
-		} else {
-			m = m2
-		}
+		m = q
+	} else {
+		m = m2
 	}
 
 	return vmeAsDecimal(v, m, e)
 }
 
 func fixFloatMantissa(m *uint64) bool {
-	// some magic to round mantissa, try to fix small errors (only from float64)
-	if *m&0xfffffffc == 0 {
-		if *m&0xffffffff != 0 {
-			*m &= 0xffffffff00000000
-
-			return true
-		}
-	}
-	if *m|0x3 == 0xffffffff {
-		*m = (*m | 0x3) + 1
+	// when the low 32 bits look like float-rounding noise (bits 2-31 zero, bits 0-1 set)
+	// AND the high 32 bits hold real value, zero out the noise.
+	// Bail out for tiny mantissas (m == 1 from a power of two etc.): zeroing would wipe the value.
+	if *m>>32 != 0 && *m&0xfffffffc == 0 && *m&0x3 != 0 {
+		*m &= 0xffffffff00000000
 
 		return true
 	}

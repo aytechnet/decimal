@@ -272,30 +272,6 @@ func TestVmeRoundFamilyPlacesUnderflow(t *testing.T) {
 	// Already covered by underflow tests above.
 }
 
-func TestNewFromFloatNegativeZero(t *testing.T) {
-	// IEEE 754 -0.0 exercises the NearNegativeZero return inside newFromFloat
-	if d := NewFromFloat(math.Copysign(0, -1)); d != NearNegativeZero {
-		t.Errorf(`NewFromFloat(-0.0) should be NearNegativeZero, got %v (0x%016x)`, d, uint64(d))
-	}
-}
-
-func TestFixFloatMantissaSecondBranch(t *testing.T) {
-	// pattern (m | 3) == 0xffffffff with m & 0xfffffffc != 0 forces the second rounding branch
-	m := uint64(0xfffffffd)
-	if !fixFloatMantissa(&m) {
-		t.Errorf(`fixFloatMantissa should return true for m = 0xfffffffd`)
-	}
-	if m != 0x100000000 {
-		t.Errorf(`fixFloatMantissa should round 0xfffffffd up to 0x100000000, got 0x%x`, m)
-	}
-
-	// no-op pattern (low 32 bits not in [0xfffffffc, 0xffffffff])
-	m = 0xdeadbeef
-	if fixFloatMantissa(&m) {
-		t.Errorf(`fixFloatMantissa should return false for m = 0xdeadbeef`)
-	}
-}
-
 func TestVmeFromBytesEdgeCases(t *testing.T) {
 	// a lone "-" must error — covers the i > j branch after parsing the sign
 	if _, _, _, err := vmeFromBytes([]byte("-"), nil); err == nil {
