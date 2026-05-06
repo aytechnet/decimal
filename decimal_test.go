@@ -2525,7 +2525,13 @@ func TestNewFromFloatExactValues(t *testing.T) {
 		t.Errorf(`NewFromFloat(-0) should be NearNegativeZero, got %v`, d)
 	}
 
-	// extreme ranges
+	// extreme ranges — both via the in-iteration overflow guard (m2 saturates 10^19 inside the legacy "for e2 >= 64" loop)
+	if d := NewFromFloat(math.MaxFloat64); d != PositiveInfinity {
+		t.Errorf(`NewFromFloat(math.MaxFloat64) should overflow to +Inf, got %v`, d)
+	}
+	if d := NewFromFloat(-math.MaxFloat64); d != NegativeInfinity {
+		t.Errorf(`NewFromFloat(-math.MaxFloat64) should overflow to -Inf, got %v`, d)
+	}
 	if d := NewFromFloat(1e308); d != PositiveInfinity {
 		t.Errorf(`NewFromFloat(1e308) should overflow to +Inf, got %v`, d)
 	}

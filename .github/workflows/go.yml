@@ -12,22 +12,65 @@ on:
 jobs:
 
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.20', '1.21', '1.22', '1.23', '1.24' ]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.20'
+        go-version: ${{ matrix.go-version }}
 
     - name: Build
       run: go build -v ./...
+
+    - name: Vet
+      run: go vet ./...
 
     - name: Test
       run: go test -v -coverprofile=coverage.txt
 
     - name: Upload coverage reports to Codecov
+      if: matrix.go-version == '1.24'
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+        args: --timeout=3m
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Smoke fuzz NewFromString
+      run: go test -run=^$ -fuzz=FuzzNewFromString -fuzztime=20s
+
+    - name: Smoke fuzz NewFromFloat
+      run: go test -run=^$ -fuzz=FuzzNewFromFloat -fuzztime=20s
+
+    - name: Smoke fuzz arithmetic round-trip
+      run: go test -run=^$ -fuzz=FuzzMarshalUnmarshalBinary -fuzztime=20s

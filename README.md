@@ -12,7 +12,7 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - the unitialized value is Null and is safe to use without initialization, intepreted as 0 which is different from 0, usefull in omitempty flag for JSON decoding/encoding.
  - **low-memory** usage as internal representation is **int64** and value between -144115188075855871 and 144115188075855871 can safely be used as Decimal.
  - **no heap allocations** to prevent garbage collector impact.
- - **high performance**, arithmetic operations are 5x to 150x faster than [shopspring/decimal](https://github.com/shopspring/decimal) package.
+ - **high performance**, arithmetic operations are 2x to 41x faster than [shopspring/decimal](https://github.com/shopspring/decimal) (see Benchmarks below).
  - compact binary serialization from 1 to 10 bytes.
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
@@ -100,6 +100,22 @@ fmt.Println(decimal.NewLengthFromString("1au")) // 149597870700m (UAI 2012)
 The public API mirrors [shopspring/decimal](https://github.com/shopspring/decimal). Methods added for compatibility include `DivRound`, `PowInt32`, `Shift`, `Truncate`, `RoundUp`, `RoundDown`, `RoundCash`, `StringFixedCash`, `NumDigits`, `Copy`, and `NewFromFormattedString`. JSON output is **unquoted** by default (raw number) — incompatible with shopspring's quoted-string default; route values through `MarshalText` / `UnmarshalText` if you need cross-package interop.
 
 Methods around `math/big` (`NewFromBigInt`, `NewFromBigRat`, `BigInt`, `BigFloat`, `Rat`, `Coefficient`) are not supported by design — the whole point of the package is to avoid `big.Int` allocations.
+
+## Benchmarks
+
+Comparison against [shopspring/decimal](https://github.com/shopspring/decimal) v1.4.0 on a Ryzen 5 8540U (Go 1.24, two runs averaged):
+
+| Operation | aytechnet | shopspring | Speedup | aytechnet allocs | shopspring allocs |
+|---|---:|---:|---:|---:|---:|
+| `Add` | 9.1 ns/op | 212 ns/op | **23×** | 0 | 8 (272 B) |
+| `Mul` | 10.2 ns/op | 53 ns/op | **5×** | 0 | 2 (80 B) |
+| `Div` | 8.1 ns/op | 332 ns/op | **41×** | 0 | 12 (328 B) |
+| `Pow(1.1, 60)` | 38 ns/op | 702 ns/op | **18×** | 0 | 26 (912 B) |
+| `NewFromString` | 37 ns/op | 92 ns/op | **2×** | 0 | 2 (40 B) |
+| `NewFromFloat` | 16 ns/op | 318 ns/op | **20×** | 0 | 2 (40 B) |
+| `String` | 59 ns/op | 126 ns/op | **2×** | 1 (24 B) | 4 (56 B) |
+
+Reproduce: `cd bench && go test -bench=. -benchmem`. The `bench/` sub-module has its own `go.mod` so the main package keeps zero external dependencies.
 
 ## Why this package
 

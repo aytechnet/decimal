@@ -141,7 +141,7 @@ func vmeNormalizeExponent(v, m uint64, e int64, maxM uint64, minE, maxE int64) (
 		if e-maxE < int64(len(tenPow)) {
 			h, l := bits.Mul64(m, tenPow[e-maxE])
 
-			if h == 0 || l < maxM {
+			if h == 0 && l <= maxM {
 				m = l
 			} else {
 				v |= loss
@@ -329,7 +329,7 @@ Loop:
 
 			continue
 		case (b[i] | 0x20) == 'e': // a little more compact and probably faster and equivalent to b[i] == 'e' || b[i] == 'E'
-			if i < j && b[i+1] == '-' || b[i+1] == '+' || b[i+1] >= '0' && b[i+1] <= '9' {
+			if i < j && (b[i+1] == '-' || b[i+1] == '+' || b[i+1] >= '0' && b[i+1] <= '9') {
 				negE := false
 
 				i++
@@ -1158,6 +1158,14 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 	}
 	// normalize mantissa if too big exponent
 	for e2 >= 64 {
+		if m2 >= tenPow[len(tenPow)-1] {
+			// each iteration grows m2 by ~1.844 (= 2^64 / 10^19); once it reaches 10^19 the next Div64 would panic.
+			// in practice this only happens for floats whose value already exceeds Decimal's max range → ±Inf.
+			if v&sign != 0 {
+				return NegativeInfinity
+			}
+			return PositiveInfinity
+		}
 		q, r := bits.Div64(m2, 0, tenPow[len(tenPow)-1])
 		e += int64(len(tenPow) - 1)
 		if r >= (tenPow[len(tenPow)-1] >> 1) {
