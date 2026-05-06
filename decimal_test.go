@@ -2733,19 +2733,19 @@ func BenchmarkDecimalNewFromFloatPow2(b *testing.B) {
 
 func BenchmarkDecimalNewFromString(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		NewFromString("100020003000400050e-17")
+		_, _ = NewFromString("100020003000400050e-17")
 	}
 }
 
 func BenchmarkIntNewFromString(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		strconv.ParseInt("100020003000400050", 0, 64)
+		_, _ = strconv.ParseInt("100020003000400050", 0, 64)
 	}
 }
 
 func BenchmarkFloatNewFromString(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		strconv.ParseFloat("100020003000400050e-17", 64)
+		_, _ = strconv.ParseFloat("100020003000400050e-17", 64)
 	}
 }
 
