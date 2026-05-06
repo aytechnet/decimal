@@ -73,6 +73,34 @@ func main() {
 }
 ```
 
+## Weight and Length
+
+`Weight` and `Length` are companion fixed-point types with the same 8-byte layout as `Decimal` but with 4 bits reserved for a unit code (53-bit mantissa instead of 57).
+
+```go
+w1, _ := decimal.NewWeightFromString("123.45kg")
+w2, _ := decimal.NewWeightFromString("550g")
+fmt.Println(w1.Add(w2)) // 124kg
+fmt.Println(w2.Add(w1)) // 124000g — w2 unit (g) is preserved
+```
+
+`Weight` units: SI multiples of `kg` (`t`, `kt`, `Mt`, `Gt`, `g`, `mg`, `µg`, `ng`, `pg`) plus avoirdupois and troy (`lb`, `oz`, `lb t`, `oz t`, with `mcg`/`lb av`/`oz av` aliases).
+
+```go
+l1, _ := decimal.NewLengthFromString("1ft")
+l2, _ := decimal.NewLengthFromString("12in")
+fmt.Println(l1.Add(l2)) // 2ft (NIST 1959: 1 ft = 12 in exact)
+fmt.Println(decimal.NewLengthFromString("1au")) // 149597870700m (UAI 2012)
+```
+
+`Length` units: `m`, `km`, `dm`, `cm`, `mm`, `µm` (alias `um`), `nm`, `pm`, `au` (alias `ua`), `in`, `ft`, `yd`, `mi`.
+
+## shopspring/decimal compatibility
+
+The public API mirrors [shopspring/decimal](https://github.com/shopspring/decimal). Methods added for compatibility include `DivRound`, `PowInt32`, `Shift`, `Truncate`, `RoundUp`, `RoundDown`, `RoundCash`, `StringFixedCash`, `NumDigits`, `Copy`, and `NewFromFormattedString`. JSON output is **unquoted** by default (raw number) — incompatible with shopspring's quoted-string default; route values through `MarshalText` / `UnmarshalText` if you need cross-package interop.
+
+Methods around `math/big` (`NewFromBigInt`, `NewFromBigRat`, `BigInt`, `BigFloat`, `Rat`, `Coefficient`) are not supported by design — the whole point of the package is to avoid `big.Int` allocations.
+
 ## Why this package
 
 This package has been created in 2022 and has been used internally for e-commerce related softwares at Aytechnet like [DyaPi](https://dyapi.io)

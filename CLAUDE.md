@@ -14,7 +14,7 @@ The module targets `go 1.13` (`go.mod`), but CI builds with Go 1.20. There are n
 
 ## Architecture
 
-This package implements fixed-point decimals where the entire value (sign, loss flag, mantissa, exponent, and optional unit) is packed into a single `int64`. The fundamental design choice — and the constraint everything else follows from — is that the types are literally `type Decimal int64` and `type Weight int64`. There are no pointers, no heap allocations, and an uninitialized variable (`Null = 0`) is a meaningful, JSON-`omitempty`-friendly sentinel distinct from `Zero`.
+This package implements fixed-point decimals where the entire value (sign, loss flag, mantissa, exponent, and optional unit) is packed into a single `int64`. The fundamental design choice — and the constraint everything else follows from — is that the types are literally `type Decimal int64`, `type Weight int64`, and `type Length int64`. There are no pointers, no heap allocations, and an uninitialized variable (`Null = 0`) is a meaningful, JSON-`omitempty`-friendly sentinel distinct from `Zero`.
 
 ### Bit layout (the load-bearing detail)
 
@@ -29,10 +29,12 @@ Negative decimals are stored as the **negation** of the unsigned bit pattern (no
 
 ### File layout
 
-- `core.go` — VME-tuple primitives: `vmeNormalize`, `vmeAdd`, `vmeMul`, `vmeDivRem`, `vmeRound*`, `vmeFromBytes` (parsing), `vmetBytesTo` (formatting), unit hashing. All arithmetic for all three types funnels through here.
-- `decimal.go` — the `Decimal` type: public API (`Add`, `Sub`, `Mul`, `Div`, `Round*`, comparisons, `IsZero`/`IsNull`/`IsExact`/`IsNaN`/...), constructors (`New`, `NewFromInt`, `NewFromFloat*`, `NewFromString`, `RequireFromString`), and (un)marshalers for JSON, XML/text, binary (varint-packed, 1–10 bytes), gob, and `database/sql` (`Scan`/`Value`).
+- `core.go` — VME-tuple primitives: `vmeNormalize`, `vmeAdd`, `vmeMul`, `vmeDivRem`, `vmeRound*`, `vmeFromBytes` (parsing), `vmetBytesTo` (formatting), unit hashing. Also `newFromFloat` (with a uint128 fast-path for integers and exact dyadic fractions, falling back to an iterative legacy path for irrationals) and the `pow5` table. All arithmetic for all three types funnels through here.
+- `decimal.go` — the `Decimal` type: arithmetic (`Add`/`Sub`/`Mul`/`Div`/`DivRound`/`Mod`/`QuoRem`/`Pow`/`PowInt32`/`Sqrt`/`Ln`/trig), rounding (`Round`/`RoundBank`/`RoundCeil`/`RoundFloor`/`RoundUp`/`RoundDown`/`RoundCash`/`Truncate`/`Shift`), formatting (`String`/`StringFixed*`/`StringFixedCash`/`BytesTo*`), constructors (`New`, `NewFromInt`/`NewFromUint64`/`NewFromInt32`, `NewFromFloat*`, `NewFromString`/`NewFromFormattedString`/`RequireFromString`), introspection (`IsZero`/`IsNull`/`IsExact`/`IsNaN`/`NumDigits`/`Mantissa`/`Exponent`/`Sign`/...), and (un)marshalers for JSON, XML/text, binary (varint-packed, 1–10 bytes), gob, and `database/sql` (`Scan`/`Value`).
 - `weight.go` — the `Weight` type: same shape as `Decimal` but with a unit table (`weightUnits`) covering SI (`kg`, `t`, `g`, `mg`, `µg`, `ng`, `pg`, …) and avoirdupois/troy (`lb`, `oz`, `lb t`, `oz t`, plus aliases `mcg`, `lb av`, `oz av`). Arithmetic auto-converts to a common unit. Unit codes 10 and 11 are reserved.
-- `decimal_test.go` / `weight_test.go` — unit tests (the canonical specification of edge-case behavior — start here when changing semantics).
+- `length.go` — the `Length` type: same shape as `Weight`, with SI (`m` base, `km`, `dm`, `cm`, `mm`, `µm`/`um`, `nm`, `pm`), the astronomical unit (`au`/`ua`), and the International Yard and Pound exact set (`in`, `ft`, `yd`, `mi`). Codes 0–7 are SI, 8–10 reserved, 11 is `au`, 12–15 imperial. Note: `unitHash` is case-insensitive, so SI prefixes that collide with a stem (`Mm` / `mm`, `Gm` / `gm`) cannot coexist in the table — `Mm`/`Gm`/`Tm` are intentionally absent.
+- `decimal_test.go` / `weight_test.go` / `length_test.go` — unit tests (the canonical specification of edge-case behavior — start here when changing semantics).
+- `core_internal_test.go` — direct tests of `core.go` internals (e.g. `vmetBytesTo` with `str=true`, `vmhmeReduce` second pass, dichotomy edges of `vmeAdd`, magic paths of `vmeMulMagic1`/`vmeAddMagic1`/`vmeDivRemMagic2`) that exercise branches kept generic for the planned 16-byte type but unreachable from the current 8-byte public API.
 
 ### Invariants to preserve
 

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"math"
 	"math/bits"
+	"regexp"
 )
 
 // Decimal represents a fixed-point decimal hold as a 64 bits integer
@@ -1061,6 +1062,20 @@ func NewFromBytes(value []byte) (Decimal, error) {
 //	d4, err := NewFromString("3.14e15")
 func NewFromString(value string) (Decimal, error) {
 	return NewFromBytes([]byte(value))
+}
+
+// NewFromFormattedString returns a new Decimal from a formatted string representation.
+// Characters matching replRegexp are stripped from value before parsing.
+//
+// Useful to consume locale-formatted numbers, e.g. "$1,234.56" or "  9 876.54 €":
+//
+//	r := regexp.MustCompile(`[$,€\s]`)
+//	d, err := NewFromFormattedString("$1,234.56", r) // d = 1234.56
+//
+// Note: the function only removes characters; if you need to swap a comma decimal separator for a dot,
+// preprocess value yourself before calling.
+func NewFromFormattedString(value string, replRegexp *regexp.Regexp) (Decimal, error) {
+	return NewFromString(replRegexp.ReplaceAllString(value, ""))
 }
 
 // RequireFromString returns a new Decimal from a string representation

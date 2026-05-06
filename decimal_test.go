@@ -5,6 +5,7 @@ import (
 
 	"log"
 	"math"
+	"regexp"
 	"strconv"
 )
 
@@ -2378,6 +2379,21 @@ func TestBytesToFixedBank(t *testing.T) {
 	b := d.BytesToFixedBank(prefix, 1)
 	if string(b) != "v=5.4" {
 		t.Errorf(`prefix BytesToFixedBank should be "v=5.4" and not %q`, string(b))
+	}
+}
+
+func TestNewFromFormattedString(t *testing.T) {
+	r := regexp.MustCompile(`[$,€\s]`)
+
+	if d, err := NewFromFormattedString("$1,234.56", r); err != nil || d != New(123456, -2) {
+		t.Errorf(`NewFromFormattedString("$1,234.56") should be 1234.56 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromFormattedString("  9 876.54 €", r); err != nil || d != New(987654, -2) {
+		t.Errorf(`NewFromFormattedString("  9 876.54 €") should be 9876.54 and not %v (err=%v)`, d, err)
+	}
+	// invalid input still propagates the error
+	if _, err := NewFromFormattedString("$abc", r); err == nil {
+		t.Errorf(`NewFromFormattedString("$abc") should error`)
 	}
 }
 
