@@ -14,7 +14,7 @@ The module targets `go 1.13` (`go.mod`), but CI builds with Go 1.20. There are n
 
 ## Architecture
 
-This package implements fixed-point decimals where the entire value (sign, loss flag, mantissa, exponent, and optional unit) is packed into a single `int64`. The fundamental design choice — and the constraint everything else follows from — is that the types are literally `type Decimal int64`, `type Weight int64`, `type Length int64`. There are no pointers, no heap allocations, and an uninitialized variable (`Null = 0`) is a meaningful, JSON-`omitempty`-friendly sentinel distinct from `Zero`.
+This package implements fixed-point decimals where the entire value (sign, loss flag, mantissa, exponent, and optional unit) is packed into a single `int64`. The fundamental design choice — and the constraint everything else follows from — is that the types are literally `type Decimal int64` and `type Weight int64`. There are no pointers, no heap allocations, and an uninitialized variable (`Null = 0`) is a meaningful, JSON-`omitempty`-friendly sentinel distinct from `Zero`.
 
 ### Bit layout (the load-bearing detail)
 
@@ -32,7 +32,6 @@ Negative decimals are stored as the **negation** of the unsigned bit pattern (no
 - `core.go` — VME-tuple primitives: `vmeNormalize`, `vmeAdd`, `vmeMul`, `vmeDivRem`, `vmeRound*`, `vmeFromBytes` (parsing), `vmetBytesTo` (formatting), unit hashing. All arithmetic for all three types funnels through here.
 - `decimal.go` — the `Decimal` type: public API (`Add`, `Sub`, `Mul`, `Div`, `Round*`, comparisons, `IsZero`/`IsNull`/`IsExact`/`IsNaN`/...), constructors (`New`, `NewFromInt`, `NewFromFloat*`, `NewFromString`, `RequireFromString`), and (un)marshalers for JSON, XML/text, binary (varint-packed, 1–10 bytes), gob, and `database/sql` (`Scan`/`Value`).
 - `weight.go` — the `Weight` type: same shape as `Decimal` but with a unit table (`weightUnits`) covering SI (`kg`, `t`, `g`, `mg`, `µg`, `ng`, `pg`, …) and avoirdupois/troy (`lb`, `oz`, `lb t`, `oz t`, plus aliases `mcg`, `lb av`, `oz av`). Arithmetic auto-converts to a common unit. Unit codes 10 and 11 are reserved.
-- `length.go` — minimal `Length int64` wrapper that delegates to `Decimal` for stringification and JSON.
 - `decimal_test.go` / `weight_test.go` — unit tests (the canonical specification of edge-case behavior — start here when changing semantics).
 
 ### Invariants to preserve

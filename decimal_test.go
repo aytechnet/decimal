@@ -2310,34 +2310,6 @@ func TestCopy(t *testing.T) {
 	}
 }
 
-func TestLength(t *testing.T) {
-	var l Length
-
-	if s := l.String(); s != "0" {
-		t.Errorf(`Length(0).String() should be "0" and not %q`, s)
-	}
-
-	if err := l.UnmarshalJSON([]byte("123.45")); err != nil {
-		t.Errorf(`Length.UnmarshalJSON should not error, got %v`, err)
-	} else if l != Length(New(12345, -2)) {
-		t.Errorf(`Length should be 123.45 and not %v`, l)
-	} else if s := l.String(); s != "123.45" {
-		t.Errorf(`Length.String() should be "123.45" and not %q`, s)
-	}
-
-	b, err := l.MarshalJSON()
-	if err != nil {
-		t.Errorf(`Length.MarshalJSON should not error, got %v`, err)
-	} else if string(b) != "123.45" {
-		t.Errorf(`Length.MarshalJSON should be "123.45" and not %q`, string(b))
-	}
-
-	// invalid input propagates the error
-	if err := l.UnmarshalJSON([]byte("abc")); err == nil {
-		t.Errorf(`Length.UnmarshalJSON("abc") should error`)
-	}
-}
-
 func TestScanValue(t *testing.T) {
 	var d Decimal
 
