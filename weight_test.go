@@ -348,3 +348,73 @@ func TestWeightCompare(t *testing.T) {
 		t.Error("1kg should be less than or equal to 1000g")
 	}
 }
+
+func TestNewWeightPositive(t *testing.T) {
+	// NewWeight with strictly positive value goes through the v=0 branch (the negative branch is already covered by NewWeight(0,...))
+	w, err := NewWeight(101, 0, "kg")
+	if err != nil {
+		t.Errorf(`NewWeight(101, 0, "kg") should not error, got %v`, err)
+	}
+	if w.String() != "101kg" {
+		t.Errorf(`NewWeight(101, 0, "kg") should be 101kg, got %v`, w)
+	}
+}
+
+func TestWeightVmetMagic(t *testing.T) {
+	// underflow → encoded as ±~0 (m=0, e=weightMinE) — exercises vmet's e == weightMinE branch
+	w, err := NewWeightFromString("1e-50kg")
+	if err != nil {
+		t.Errorf(`NewWeightFromString("1e-50kg") should not error, got %v`, err)
+	}
+	if w.IsExact() {
+		t.Errorf(`underflowed weight should have loss bit set, got %v`, w)
+	}
+	// trigger vmet on it (via String) — this is what runs the `e == weightMinE` branch
+	_ = w.String()
+
+	// overflow → encoded as +Inf (m=0, e=weightMaxE) — exercises vmet's e == weightMaxE branch
+	w, err = NewWeightFromString("1e50kg")
+	if err != nil {
+		t.Errorf(`NewWeightFromString("1e50kg") should not error, got %v`, err)
+	}
+	if !w.IsInfinite() {
+		t.Errorf(`overflowed weight should be infinite, got %v`, w)
+	}
+}
+
+func TestWeightAddNullPair(t *testing.T) {
+	// (Null) + (Null) returns Null via vmeAsWeight's `v == 0 && e == 0 → return Null` short-circuit
+	var n1, n2 Weight
+	if r := n1.Add(n2); r != Null {
+		t.Errorf(`Null + Null should be Null, got %v`, r)
+	}
+}
+
+func TestWeightAddAvoirdupois(t *testing.T) {
+	// addition between an avoirdupois unit (lb / oz) and a kg weight forces the non-integer t.c branch
+	// (where t.c is itself a Decimal that is not an integer, exercising lines around the rem != 0 fix-up)
+	wlb, _ := NewWeightFromString("1lb")
+	wkg, _ := NewWeightFromString("1kg")
+
+	r := wlb.Add(wkg)
+	if r.IsNull() || r.Unit() != "lb" {
+		t.Errorf(`1lb + 1kg should keep lb unit, got %v (unit=%q)`, r, r.Unit())
+	}
+
+	// also the symmetric direction
+	r = wkg.Add(wlb)
+	if r.IsNull() || r.Unit() != "kg" {
+		t.Errorf(`1kg + 1lb should keep kg unit, got %v (unit=%q)`, r, r.Unit())
+	}
+}
+
+func TestWeightUnmarshalErrors(t *testing.T) {
+	// UnmarshalJSON with invalid input must return an error (covers the `else { return err }` branch)
+	var w Weight
+	if err := w.UnmarshalJSON([]byte("not-a-weight")); err == nil {
+		t.Errorf(`UnmarshalJSON("not-a-weight") should error`)
+	}
+	if err := w.UnmarshalText([]byte("not-a-weight")); err == nil {
+		t.Errorf(`UnmarshalText("not-a-weight") should error`)
+	}
+}

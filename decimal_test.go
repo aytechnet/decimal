@@ -616,11 +616,11 @@ func TestNewFromFloat32(t *testing.T) {
 		t.Errorf(`NewFromFloat32(0.01) should be 0.01, d = %v`, d)
 	}
 
-	if d := NewFromFloat32(float32(math.Inf(0))); !d.IsNaN() {
+	if d := NewFromFloat32(float32(math.Inf(0))); d != PositiveInfinity {
 		t.Errorf(`NewFromFloat32(+Inf) should be +Inf, d = %v`, d)
 	}
 
-	if d := NewFromFloat32(float32(math.Inf(-1))); !d.IsNaN() {
+	if d := NewFromFloat32(float32(math.Inf(-1))); d != NegativeInfinity {
 		t.Errorf(`NewFromFloat32(-Inf) should be -Inf, d = %v`, d)
 	}
 
@@ -2049,6 +2049,571 @@ func TestGobEncode(t *testing.T) {
 		t.Errorf(`(1.01).GobEncode() should be ok, error = %v`, err)
 	} else if len(b) != 2 || b[0] != 0x3d && b[1] != 0x65 {
 		t.Errorf(`(1.01).GobEncode() should be { 0x3d, 0x65 }, buff = %v`, b)
+	}
+}
+
+func TestDivRound(t *testing.T) {
+	if d := New(10, 0).DivRound(NewFromInt(3), 2); d != New(333, -2) {
+		t.Errorf(`10/3 rounded to 2 decimals should be 3.33 and not %v`, d)
+	}
+	if d := New(10, 0).DivRound(NewFromInt(3), 4); d != New(33333, -4) {
+		t.Errorf(`10/3 rounded to 4 decimals should be 3.3333 and not %v`, d)
+	}
+	if d := New(-10, 0).DivRound(NewFromInt(3), 2); d != New(-333, -2) {
+		t.Errorf(`-10/3 rounded to 2 decimals should be -3.33 and not %v`, d)
+	}
+	if d := New(545, 0).DivRound(1, -2); d != 500 {
+		t.Errorf(`545/1 rounded to -2 should be 500 and not %v`, d)
+	}
+	if d := New(556, 0).DivRound(1, -2); d != 600 {
+		t.Errorf(`556/1 rounded to -2 should be 600 and not %v`, d)
+	}
+	if d := NewFromInt(6).DivRound(NewFromInt(2), 0); d != 3 {
+		t.Errorf(`6/2 should be exactly 3 and not %v`, d)
+	} else if !d.IsExact() {
+		t.Errorf(`6/2 should be exact and not %v`, d)
+	}
+	if d := NewFromInt(1).DivRound(NewFromInt(3), 6); d != New(333333, -6) {
+		t.Errorf(`1/3 rounded to 6 decimals should be 0.333333 and not %v`, d)
+	}
+	// non-zero remainder rounding-up boundary on positive (rem<<1 == m2)
+	if d := New(75, -2).DivRound(1, 0); d != 1 {
+		t.Errorf(`0.75/1 rounded to 0 should be 1 and not %v`, d)
+	}
+	// magic value passthrough
+	if d := PositiveInfinity.DivRound(NewFromInt(2), 2); d != PositiveInfinity {
+		t.Errorf(`+Inf/2 should be +Inf and not %v`, d)
+	}
+	if d := NewFromInt(1).DivRound(Zero, 2); !d.IsNaN() {
+		t.Errorf(`1/0 should be NaN and not %v`, d)
+	}
+}
+
+func TestPowInt32(t *testing.T) {
+	if d, err := NewFromInt(4).PowInt32(4); err != nil || d != 256 {
+		t.Errorf(`4**4 should be 256 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromInt(2).PowInt32(10); err != nil || d != 1024 {
+		t.Errorf(`2**10 should be 1024 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromInt(3).PowInt32(0); err != nil || d != 1 {
+		t.Errorf(`3**0 should be 1 and not %v (err=%v)`, d, err)
+	}
+	if _, err := Zero.PowInt32(0); err == nil {
+		t.Errorf(`0**0 should return an error`)
+	}
+	if _, err := Decimal(Null).PowInt32(0); err == nil {
+		t.Errorf(`Null**0 should return an error`)
+	}
+	if d, err := NewFromInt(2).PowInt32(-3); err != nil || d != New(125, -3) {
+		t.Errorf(`2**-3 should be 0.125 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromInt(5).PowInt32(1); err != nil || d != 5 {
+		t.Errorf(`5**1 should be 5 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromInt(-2).PowInt32(3); err != nil || d != -8 {
+		t.Errorf(`(-2)**3 should be -8 and not %v (err=%v)`, d, err)
+	}
+	if d, err := NewFromInt(-2).PowInt32(4); err != nil || d != 16 {
+		t.Errorf(`(-2)**4 should be 16 and not %v (err=%v)`, d, err)
+	}
+}
+
+func TestShift(t *testing.T) {
+	if d := New(12345, -2).Shift(1); d != New(12345, -1) {
+		t.Errorf(`123.45.Shift(1) should be 1234.5 and not %v`, d)
+	}
+	if d := New(12345, -2).Shift(-1); d != New(12345, -3) {
+		t.Errorf(`123.45.Shift(-1) should be 12.345 and not %v`, d)
+	}
+	if d := New(12345, -2).Shift(0); d != New(12345, -2) {
+		t.Errorf(`123.45.Shift(0) should be 123.45 and not %v`, d)
+	}
+	// magic values left untouched
+	if d := Decimal(Null).Shift(3); d != Null {
+		t.Errorf(`Null.Shift(3) should be Null and not %v`, d)
+	}
+	if d := Zero.Shift(3); d != Zero {
+		t.Errorf(`Zero.Shift(3) should be Zero and not %v`, d)
+	}
+	if d := PositiveInfinity.Shift(-2); d != PositiveInfinity {
+		t.Errorf(`+Inf.Shift(-2) should be +Inf and not %v`, d)
+	}
+	if d := NaN.Shift(2); !d.IsNaN() {
+		t.Errorf(`NaN.Shift(2) should be NaN and not %v`, d)
+	}
+	if d := NearZero.Shift(2); d != NearZero {
+		t.Errorf(`~0.Shift(2) should be ~0 and not %v`, d)
+	}
+	// shifting out of exponent range produces ~0 / Inf
+	if d := New(1, 10).Shift(40); !d.IsInfinite() {
+		t.Errorf(`1e10.Shift(40) should overflow to +Inf and not %v`, d)
+	}
+	if d := New(1, -10).Shift(-40); d != NearPositiveZero {
+		t.Errorf(`1e-10.Shift(-40) should underflow to ~+0 and not %v`, d)
+	}
+}
+
+func TestRoundCash(t *testing.T) {
+	if d := New(343, -2).RoundCash(5); d != New(345, -2) {
+		t.Errorf(`3.43.RoundCash(5) should be 3.45 and not %v`, d)
+	}
+	if d := New(345, -2).RoundCash(10); d != New(35, -1) {
+		t.Errorf(`3.45.RoundCash(10) should be 3.5 and not %v`, d)
+	}
+	if d := New(341, -2).RoundCash(25); d != New(35, -1) {
+		t.Errorf(`3.41.RoundCash(25) should be 3.5 and not %v`, d)
+	}
+	if d := New(375, -2).RoundCash(50); d != 4 {
+		t.Errorf(`3.75.RoundCash(50) should be 4 and not %v`, d)
+	}
+	if d := New(350, -2).RoundCash(100); d != 4 {
+		t.Errorf(`3.50.RoundCash(100) should be 4 and not %v`, d)
+	}
+	if d := New(-343, -2).RoundCash(5); d != New(-345, -2) {
+		t.Errorf(`-3.43.RoundCash(5) should be -3.45 and not %v`, d)
+	}
+	if d := Zero.RoundCash(5); d != Zero {
+		t.Errorf(`0.RoundCash(5) should be Zero and not %v`, d)
+	}
+
+	// invalid intervals must panic
+	for _, bad := range []uint8{0, 1, 2, 3, 4, 6, 7, 11, 20, 26, 99, 101, 200} {
+		func(interval uint8) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Errorf(`RoundCash(%d) should panic`, interval)
+				}
+			}()
+			_ = New(123, -2).RoundCash(interval)
+		}(bad)
+	}
+}
+
+func TestStringFixedCash(t *testing.T) {
+	if s := New(343, -2).StringFixedCash(5); s != "3.45" {
+		t.Errorf(`3.43.StringFixedCash(5) should be "3.45" and not %q`, s)
+	}
+	if s := New(375, -2).StringFixedCash(50); s != "4.00" {
+		t.Errorf(`3.75.StringFixedCash(50) should be "4.00" and not %q`, s)
+	}
+	if s := Zero.StringFixedCash(5); s != "0.00" {
+		t.Errorf(`Zero.StringFixedCash(5) should be "0.00" and not %q`, s)
+	}
+}
+
+func TestRoundDown(t *testing.T) {
+	if d := New(545, 0).RoundDown(-2); d != 500 {
+		t.Errorf(`545.RoundDown(-2) should be 500 and not %v`, d)
+	}
+	if d := New(-500, 0).RoundDown(-2); d != -500 {
+		t.Errorf(`-500.RoundDown(-2) should be -500 and not %v`, d)
+	}
+	if d := New(11001, -4).RoundDown(2); d != New(11, -1) {
+		t.Errorf(`1.1001.RoundDown(2) should be 1.1 and not %v`, d)
+	}
+	if d := New(-1454, -3).RoundDown(1); d != New(-14, -1) {
+		t.Errorf(`-1.454.RoundDown(1) should be -1.4 and not %v`, d)
+	}
+	if d := Decimal(Null).RoundDown(2); d != Zero {
+		t.Errorf(`Null.RoundDown(2) should be Zero and not %v`, d)
+	}
+	if d := NaN.RoundDown(2); !d.IsNaN() {
+		t.Errorf(`NaN.RoundDown(2) should be NaN and not %v`, d)
+	}
+}
+
+func TestRoundUp(t *testing.T) {
+	if d := New(545, 0).RoundUp(-2); d != 600 {
+		t.Errorf(`545.RoundUp(-2) should be 600 and not %v`, d)
+	}
+	if d := New(500, 0).RoundUp(-2); d != 500 {
+		t.Errorf(`500.RoundUp(-2) should be 500 and not %v`, d)
+	}
+	if d := New(11001, -4).RoundUp(2); d != New(111, -2) {
+		t.Errorf(`1.1001.RoundUp(2) should be 1.11 and not %v`, d)
+	}
+	if d := New(-1454, -3).RoundUp(1); d != New(-15, -1) {
+		t.Errorf(`-1.454.RoundUp(1) should be -1.5 and not %v`, d)
+	}
+	if d := Zero.RoundUp(2); d != Zero {
+		t.Errorf(`Zero.RoundUp(2) should be Zero and not %v`, d)
+	}
+	if d := PositiveInfinity.RoundUp(2); d != PositiveInfinity {
+		t.Errorf(`+Inf.RoundUp(2) should be +Inf and not %v`, d)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if d := New(123456, -3).Truncate(2); d != New(12345, -2) {
+		t.Errorf(`123.456.Truncate(2) should be 123.45 and not %v`, d)
+	}
+	if d := New(-123456, -3).Truncate(2); d != New(-12345, -2) {
+		t.Errorf(`-123.456.Truncate(2) should be -123.45 and not %v`, d)
+	}
+	if d := New(12345, -2).Truncate(0); d != 123 {
+		t.Errorf(`123.45.Truncate(0) should be 123 and not %v`, d)
+	}
+	// negative precision returns d unchanged
+	if d := New(12345, -2).Truncate(-1); d != New(12345, -2) {
+		t.Errorf(`123.45.Truncate(-1) should be 123.45 and not %v`, d)
+	}
+}
+
+func TestNumDigits(t *testing.T) {
+	if n := New(0, 0).NumDigits(); n != 1 {
+		t.Errorf(`Zero.NumDigits() should be 1 and not %d`, n)
+	}
+	if n := Decimal(Null).NumDigits(); n != 1 {
+		t.Errorf(`Null.NumDigits() should be 1 and not %d`, n)
+	}
+	if n := New(1, 0).NumDigits(); n != 1 {
+		t.Errorf(`1.NumDigits() should be 1 and not %d`, n)
+	}
+	if n := New(9, 0).NumDigits(); n != 1 {
+		t.Errorf(`9.NumDigits() should be 1 and not %d`, n)
+	}
+	if n := NewFromInt(10).NumDigits(); n != 2 {
+		t.Errorf(`10.NumDigits() should be 2 and not %d`, n)
+	}
+	if n := NewFromInt(100).NumDigits(); n != 3 {
+		t.Errorf(`100.NumDigits() should be 3 and not %d`, n)
+	}
+	if n := New(12345, -2).NumDigits(); n != 5 {
+		t.Errorf(`123.45.NumDigits() should be 5 and not %d`, n)
+	}
+	if n := New(-12345, -2).NumDigits(); n != 5 {
+		t.Errorf(`-123.45.NumDigits() should be 5 and not %d`, n)
+	}
+	if n := NewFromInt(99999999999999999).NumDigits(); n != 17 {
+		t.Errorf(`99999999999999999.NumDigits() should be 17 and not %d`, n)
+	}
+	if n := NaN.NumDigits(); n != 1 {
+		t.Errorf(`NaN.NumDigits() should be 1 and not %d`, n)
+	}
+	if n := PositiveInfinity.NumDigits(); n != 1 {
+		t.Errorf(`+Inf.NumDigits() should be 1 and not %d`, n)
+	}
+}
+
+func TestCopy(t *testing.T) {
+	d := New(12345, -2)
+
+	if d.Copy() != d {
+		t.Errorf(`d.Copy() should be equal to d`)
+	}
+	if Decimal(Null).Copy() != Null {
+		t.Errorf(`Null.Copy() should be Null`)
+	}
+	if NaN.Copy() != NaN {
+		t.Errorf(`NaN.Copy() should be NaN`)
+	}
+}
+
+func TestLength(t *testing.T) {
+	var l Length
+
+	if s := l.String(); s != "0" {
+		t.Errorf(`Length(0).String() should be "0" and not %q`, s)
+	}
+
+	if err := l.UnmarshalJSON([]byte("123.45")); err != nil {
+		t.Errorf(`Length.UnmarshalJSON should not error, got %v`, err)
+	} else if l != Length(New(12345, -2)) {
+		t.Errorf(`Length should be 123.45 and not %v`, l)
+	} else if s := l.String(); s != "123.45" {
+		t.Errorf(`Length.String() should be "123.45" and not %q`, s)
+	}
+
+	b, err := l.MarshalJSON()
+	if err != nil {
+		t.Errorf(`Length.MarshalJSON should not error, got %v`, err)
+	} else if string(b) != "123.45" {
+		t.Errorf(`Length.MarshalJSON should be "123.45" and not %q`, string(b))
+	}
+
+	// invalid input propagates the error
+	if err := l.UnmarshalJSON([]byte("abc")); err == nil {
+		t.Errorf(`Length.UnmarshalJSON("abc") should error`)
+	}
+}
+
+func TestScanValue(t *testing.T) {
+	var d Decimal
+
+	cases := []struct {
+		in  interface{}
+		out Decimal
+	}{
+		{int64(42), 42},
+		{uint64(42), 42},
+		{float32(545), 545},
+		{float64(123456), 123456},
+		{"3.14", New(314, -2)},
+		{[]byte("2.71"), New(271, -2)},
+	}
+
+	for _, c := range cases {
+		if err := d.Scan(c.in); err != nil {
+			t.Errorf(`Scan(%v) should not error, got %v`, c.in, err)
+		} else if !d.Equal(c.out) {
+			t.Errorf(`Scan(%v) should be %v and not %v`, c.in, c.out, d)
+		}
+	}
+
+	// unsupported type → error
+	if err := d.Scan(struct{}{}); err == nil {
+		t.Errorf(`Scan(struct{}) should error`)
+	}
+
+	// invalid string → error
+	if err := d.Scan("not-a-number"); err == nil {
+		t.Errorf(`Scan("not-a-number") should error`)
+	}
+	if err := d.Scan([]byte("not-a-number")); err == nil {
+		t.Errorf(`Scan([]byte("not-a-number")) should error`)
+	}
+
+	// Value
+	d = New(123, -1)
+	if v, err := d.Value(); err != nil {
+		t.Errorf(`Value() should not error, got %v`, err)
+	} else if s, ok := v.(string); !ok || s != "12.3" {
+		t.Errorf(`Value() should be "12.3" and not %v`, v)
+	}
+}
+
+func TestBytesToFixedBank(t *testing.T) {
+	d := NewFromFloat(5.45)
+
+	if s := d.StringFixedBank(1); s != "5.4" {
+		t.Errorf(`5.45.StringFixedBank(1) should be "5.4" and not %q`, s)
+	}
+	if s := d.StringFixedBank(-1); s != "10" {
+		t.Errorf(`5.45.StringFixedBank(-1) should round-bank to "10" and not %q`, s)
+	}
+
+	if b := d.BytesToFixedBank(nil, 2); string(b) != "5.45" {
+		t.Errorf(`5.45.BytesToFixedBank(2) should be "5.45" and not %q`, string(b))
+	}
+
+	// providing a pre-allocated slice
+	prefix := []byte("v=")
+	b := d.BytesToFixedBank(prefix, 1)
+	if string(b) != "v=5.4" {
+		t.Errorf(`prefix BytesToFixedBank should be "v=5.4" and not %q`, string(b))
+	}
+}
+
+func TestRequireFromString(t *testing.T) {
+	if d := RequireFromString("12.34"); d != New(1234, -2) {
+		t.Errorf(`RequireFromString("12.34") should be 12.34 and not %v`, d)
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf(`RequireFromString("not-a-number") should panic`)
+		}
+	}()
+	_ = RequireFromString("not-a-number")
+}
+
+func TestUnmarshalBinaryRoundtrip(t *testing.T) {
+	cases := []Decimal{
+		Null,
+		Zero,
+		1,
+		-1,
+		New(12345, -2),
+		New(-12345, -2),
+		NaN,
+		PositiveInfinity,
+		NegativeInfinity,
+		NearZero,
+		NearPositiveZero,
+		NearNegativeZero,
+	}
+
+	for _, d := range cases {
+		b, err := d.MarshalBinary()
+		if err != nil {
+			t.Errorf(`MarshalBinary(%v) error: %v`, d, err)
+			continue
+		}
+
+		var d2 Decimal
+		if err := d2.UnmarshalBinary(b); err != nil {
+			t.Errorf(`UnmarshalBinary(%v) error: %v`, d, err)
+			continue
+		}
+
+		if d != d2 && !(d.IsNaN() && d2.IsNaN()) {
+			t.Errorf(`roundtrip failed: %v -> %x -> %v`, d, b, d2)
+		}
+	}
+
+	// empty input
+	var d Decimal
+	if err := d.UnmarshalBinary(nil); err == nil {
+		t.Errorf(`UnmarshalBinary(nil) should error`)
+	}
+	// truncated varint
+	if err := d.UnmarshalBinary([]byte{0x01}); err == nil {
+		t.Errorf(`UnmarshalBinary truncated should error`)
+	}
+}
+
+func TestNewFromIntEdges(t *testing.T) {
+	// values just outside the [-MaxInt, MaxInt] range need normalization
+	if d := NewFromInt(MaxInt + 1); d != New(MaxInt+1, 0) {
+		t.Errorf(`NewFromInt(MaxInt+1) result %v`, d)
+	}
+	if d := NewFromInt(-MaxInt - 1); d != New(-MaxInt-1, 0) {
+		t.Errorf(`NewFromInt(-MaxInt-1) result %v`, d)
+	}
+	if d := NewFromInt(0); d != Zero {
+		t.Errorf(`NewFromInt(0) should be Zero and not %v`, d)
+	}
+	if d := NewFromUint64(0); d != Zero {
+		t.Errorf(`NewFromUint64(0) should be Zero and not %v`, d)
+	}
+	if d := NewFromUint64(uint64(MaxInt) + 1); d != New(MaxInt+1, 0) {
+		t.Errorf(`NewFromUint64(MaxInt+1) result %v`, d)
+	}
+	if d := NewFromInt32(0); d != Zero {
+		t.Errorf(`NewFromInt32(0) should be Zero and not %v`, d)
+	}
+	if d := NewFromInt32(-7); d != -7 {
+		t.Errorf(`NewFromInt32(-7) should be -7 and not %v`, d)
+	}
+}
+
+func TestNewFromFloat32Edges(t *testing.T) {
+	if d := NewFromFloat32(0); d != Zero {
+		t.Errorf(`NewFromFloat32(0) should be Zero and not %v`, d)
+	}
+	if d := NewFromFloat32(float32(math.NaN())); !d.IsNaN() {
+		t.Errorf(`NewFromFloat32(NaN) should be NaN and not %v`, d)
+	}
+	if d := NewFromFloat32(123456); d != 123456 {
+		t.Errorf(`NewFromFloat32(123456) should be 123456 and not %v`, d)
+	}
+	if d := NewFromFloat32(-123456); d != -123456 {
+		t.Errorf(`NewFromFloat32(-123456) should be -123456 and not %v`, d)
+	}
+	if d := NewFromFloat32(float32(math.Inf(1))); d != PositiveInfinity {
+		t.Errorf(`NewFromFloat32(+Inf) should be +Inf and not %v`, d)
+	}
+	if d := NewFromFloat32(float32(math.Inf(-1))); d != NegativeInfinity {
+		t.Errorf(`NewFromFloat32(-Inf) should be -Inf and not %v`, d)
+	}
+}
+
+func TestFloat64Edges(t *testing.T) {
+	// big mantissa with e=0 must mark exact=false
+	d := Decimal((1 << 54) + 1)
+	if _, exact := d.Float64(); exact {
+		t.Errorf(`Float64 with mantissa > 2^54 should not be exact`)
+	}
+
+	// negative big mantissa with e=0
+	d = -Decimal((1 << 54) + 1)
+	if f, exact := d.Float64(); exact || f >= 0 {
+		t.Errorf(`Float64 with negative big mantissa should be negative and not exact, got %v exact=%v`, f, exact)
+	}
+
+	// large positive exponent path
+	d = New(1, 12)
+	if f, _ := d.Float64(); f != 1e12 {
+		t.Errorf(`Float64 of 1e12 should be 1e12, got %v`, f)
+	}
+
+	// negative exponent path
+	d = New(1, -5)
+	if f, _ := d.Float64(); f != 1e-5 {
+		t.Errorf(`Float64 of 1e-5 should be 1e-5, got %v`, f)
+	}
+
+	// Inf and NaN paths
+	if f, _ := PositiveInfinity.Float64(); !math.IsInf(f, 1) {
+		t.Errorf(`Float64 of +Inf should be +Inf, got %v`, f)
+	}
+	if f, _ := NegativeInfinity.Float64(); !math.IsInf(f, -1) {
+		t.Errorf(`Float64 of -Inf should be -Inf, got %v`, f)
+	}
+	if f, _ := NaN.Float64(); !math.IsNaN(f) {
+		t.Errorf(`Float64 of NaN should be NaN, got %v`, f)
+	}
+	if f, exact := Decimal(Null).Float64(); f != 0 || !exact {
+		t.Errorf(`Float64 of Null should be exact 0, got %v exact=%v`, f, exact)
+	}
+}
+
+func TestIntPartErrEdges(t *testing.T) {
+	// e < 0 path (truncation of fractional part)
+	if i, err := New(12345, -2).IntPartErr(); err != nil || i != 123 {
+		t.Errorf(`123.45.IntPartErr() should be 123 and not %v (err=%v)`, i, err)
+	}
+	if i, err := New(-12345, -2).IntPartErr(); err != nil || i != -123 {
+		t.Errorf(`-123.45.IntPartErr() should be -123 and not %v (err=%v)`, i, err)
+	}
+
+	// e > 0 within int64 range
+	if i, err := New(1, 5).IntPartErr(); err != nil || i != 100000 {
+		t.Errorf(`1e5.IntPartErr() should be 100000 and not %v (err=%v)`, i, err)
+	}
+	if i, err := New(-1, 5).IntPartErr(); err != nil || i != -100000 {
+		t.Errorf(`-1e5.IntPartErr() should be -100000 and not %v (err=%v)`, i, err)
+	}
+
+	// negative integer path (e == 0, d < 0)
+	if i, err := New(-7, 0).IntPartErr(); err != nil || i != -7 {
+		t.Errorf(`-7.IntPartErr() should be -7 and not %v (err=%v)`, i, err)
+	}
+}
+
+func TestDivRoundLossPath(t *testing.T) {
+	// 5/9 = 0.555... has remainder >= m2/2 at every precision step, exercising the (rem<<1) >= m2 path
+	if d := NewFromInt(5).DivRound(NewFromInt(9), 6); d != New(555556, -6) {
+		t.Errorf(`5/9 rounded to 6 should be 0.555556 and not %v`, d)
+	}
+	// 7/4 = 1.75 exact, no remainder
+	if d := NewFromInt(7).DivRound(NewFromInt(4), 2); d != New(175, -2) {
+		t.Errorf(`7/4 rounded to 2 should be 1.75 and not %v`, d)
+	}
+}
+
+func TestSmallFractionalString(t *testing.T) {
+	// 0.001 forces the "leading 0 then dot" branch in vmetBytesTo (when the dot is reached but no digit was emitted yet)
+	if s := New(1, -3).String(); s != "0.001" {
+		t.Errorf(`New(1,-3).String() should be "0.001" and not %q`, s)
+	}
+	if s := New(-1, -3).String(); s != "-0.001" {
+		t.Errorf(`New(-1,-3).String() should be "-0.001" and not %q`, s)
+	}
+}
+
+func TestBytesToFixedNegativePlaces(t *testing.T) {
+	// places < 0 path inside BytesToFixed clamps places to 0 before formatting
+	if s := New(123, 0).StringFixed(-1); s != "120" {
+		t.Errorf(`123.StringFixed(-1) should be "120" and not %q`, s)
+	}
+}
+
+func TestStringFixedIntegerWithDot(t *testing.T) {
+	// regression: integer Decimals with positive places must include the decimal point
+	if s := Decimal(4).StringFixed(2); s != "4.00" {
+		t.Errorf(`Decimal(4).StringFixed(2) should be "4.00" and not %q`, s)
+	}
+	if s := Decimal(123).StringFixed(2); s != "123.00" {
+		t.Errorf(`Decimal(123).StringFixed(2) should be "123.00" and not %q`, s)
+	}
+	if s := Decimal(-5).StringFixed(3); s != "-5.000" {
+		t.Errorf(`Decimal(-5).StringFixed(3) should be "-5.000" and not %q`, s)
+	}
+	// e > 0 case: 1e3 must give "1000.00"
+	if s := New(1, 3).StringFixed(2); s != "1000.00" {
+		t.Errorf(`New(1,3).StringFixed(2) should be "1000.00" and not %q`, s)
 	}
 }
 

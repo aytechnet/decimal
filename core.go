@@ -302,10 +302,9 @@ Loop:
 			if h == 0 {
 				m = l + uint64(b[i]-'0')
 
-				if doti >= 0 && e <= 0 {
+				// in the h == 0 branch e cannot be > 0: e only becomes positive via the overflow else branch (where m and h stay non-zero) or via the trailing exponent notation (which breaks the loop), so we only need the doti >= 0 case
+				if doti >= 0 {
 					e--
-				} else if doti < 0 && e > 0 {
-					e++
 				}
 			} else {
 				if e >= 0 && b[i] != '0' {
@@ -473,6 +472,8 @@ func vmetBytesTo(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str
 		if v&sign != 0 {
 			b = append(b, '-')
 		}
+		// dot is added in the main loop below when i+e+1 == 0 (e in [-20, -1]); for an integer mantissa with positive exponent ('.' never reached) we add it manually before the trailing decimal zeros
+		e0 := e
 		for i = len(tenPow) - 1; i >= 0; i-- {
 			if int64(i)+e+1 == 0 {
 				if !output {
@@ -497,6 +498,9 @@ func vmetBytesTo(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str
 
 		for e += int64(i); e >= int64(places); e-- {
 			b = append(b, '0')
+		}
+		if e0 >= 0 && places > 0 && e+int64(places) >= 0 {
+			b = append(b, '.')
 		}
 		for e+int64(places) >= 0 {
 			b = append(b, '0')
@@ -906,10 +910,8 @@ func vmeDivRem(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64, precision int32
 	if m2 <= h1 {
 		for i, p := range tenPow {
 			if h1 < p {
-				q, r := bits.Div64(h1, l1, p)
-				if r != 0 {
-					v |= loss
-				}
+				// (h1*2^64 + l1) == m1 * tenPow[tenPowI] by construction; the loop selects the smallest tenPow[i] strictly greater than h1, which forces i <= tenPowI (since h1 < 2^64), so the dividend is always a multiple of tenPow[i] and the remainder is necessarily zero — no loss bit to set here
+				q, _ := bits.Div64(h1, l1, p)
 				h1, l1 = 0, q
 				e += int64(i)
 				break

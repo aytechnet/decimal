@@ -84,6 +84,9 @@ var (
 
 	// DivisionPrecision has the number of decimal places in the result when it doesn't divide exactly.
 	DivisionPrecision = 16
+
+	// PowPrecisionNegativeExponent has the maximum precision (digits after the decimal point) of the result of PowInt32 when the exponent is negative.
+	PowPrecisionNegativeExponent = 16
 )
 
 // Mantissa returns the mantissa of the decimal.
@@ -93,6 +96,26 @@ func (d Decimal) Mantissa() int64 {
 	} else {
 		return int64(d) & MaxInt
 	}
+}
+
+// NumDigits returns the number of digits of the decimal mantissa in base 10.
+// Mantissa is only normalized (trailing zeros dropped) when its absolute value would otherwise exceed MaxInt
+// or its exponent would be out of range, so 100 is kept as mantissa=100 (NumDigits=3) while 10^18 is normalized to mantissa=1, exp=18 (NumDigits=1).
+// Null, Zero, NearZero, NearPositiveZero, NearNegativeZero, +Inf, -Inf and NaN return 1.
+func (d Decimal) NumDigits() int {
+	m := uint64(d.Mantissa())
+	if m == 0 {
+		return 1
+	}
+
+	// mantissa is always <= MaxInt (~1.44e17 < 10^18), so iterating from 19 down to 1 always finds the first tenPow[i] <= m or falls through to a single-digit mantissa
+	for i := len(tenPow) - 1; i > 0; i-- {
+		if m >= tenPow[i] {
+			return i + 1
+		}
+	}
+
+	return 1
 }
 
 // Exponent returns the exponent, or scale component of the decimal.
@@ -242,6 +265,32 @@ func (d1 Decimal) Mod(d2 Decimal) Decimal {
 	return r
 }
 
+// DivRound divides d1 by d2 and rounds the result to a given precision (an integer multiple of 10^(-precision)).
+//
+// Rounding follows the package Round semantics. Negative precision is allowed.
+func (d1 Decimal) DivRound(d2 Decimal, precision int32) Decimal {
+	p := precision + 1
+	if dp := int32(DivisionPrecision); p < dp {
+		p = dp
+	}
+
+	v1, m1, e1 := d1.vme()
+	v2, m2, e2 := d2.vme()
+
+	v, m, e, rem, _ := vmeDivRem(v1, m1, e1, v2, m2, e2, p)
+
+	if rem != 0 {
+		v |= loss
+
+		// fix m so that the result is the nearest, like in shopspring/decimal
+		if (rem << 1) >= m2 {
+			m++
+		}
+	}
+
+	return vmeAsDecimal(vmeRound(v, m, e, precision))
+}
+
 // Neg returns -d.
 func (d Decimal) Neg() Decimal {
 	if d.IsExactlyZero() || d == NearZero {
@@ -249,6 +298,12 @@ func (d Decimal) Neg() Decimal {
 	} else {
 		return -d
 	}
+}
+
+// Copy returns a copy of the decimal. As Decimal is an immutable int64, the returned value has the same bit pattern.
+// Provided for API compatibility with shopspring/decimal.
+func (d Decimal) Copy() Decimal {
+	return d
 }
 
 // Equal returns whether d1 == d2 without taking care of loss bit. The values Null, Zero, NearZero, NearPositiveZero and NearNegativeZero are equals.
@@ -342,6 +397,73 @@ func (d Decimal) RoundFloor(places int32) Decimal {
 	return vmeAsDecimal(vmeRoundFloor(v, m, e, places))
 }
 
+// RoundDown rounds the decimal towards zero. If places < 0, it will round the integer part to the nearest 10^(-places).
+//
+// Examples:
+//
+//	NewFromFloat(545).RoundDown(-2).String()    // "500"
+//	NewFromFloat(-500).RoundDown(-2).String()   // "-500"
+//	NewFromFloat(1.1001).RoundDown(2).String()  // "1.1"
+//	NewFromFloat(-1.454).RoundDown(1).String()  // "-1.4"
+func (d Decimal) RoundDown(places int32) Decimal {
+	if d.IsNegative() {
+		return d.RoundCeil(places)
+	}
+
+	return d.RoundFloor(places)
+}
+
+// RoundUp rounds the decimal away from zero. If places < 0, it will round the integer part to the nearest 10^(-places).
+//
+// Examples:
+//
+//	NewFromFloat(545).RoundUp(-2).String()    // "600"
+//	NewFromFloat(500).RoundUp(-2).String()    // "500"
+//	NewFromFloat(1.1001).RoundUp(2).String()  // "1.11"
+//	NewFromFloat(-1.454).RoundUp(1).String()  // "-1.5"
+func (d Decimal) RoundUp(places int32) Decimal {
+	if d.IsNegative() {
+		return d.RoundFloor(places)
+	}
+
+	return d.RoundCeil(places)
+}
+
+// Truncate truncates digits from the decimal without rounding (towards zero).
+// precision is the number of digits to keep after the decimal point and must be >= 0;
+// for precision < 0 the decimal is returned unchanged.
+//
+// Example:
+//
+//	d, _ := NewFromString("123.456")
+//	d.Truncate(2).String() // "123.45"
+func (d Decimal) Truncate(precision int32) Decimal {
+	if precision < 0 {
+		return d
+	}
+
+	return d.RoundDown(precision)
+}
+
+// Shift shifts the decimal in base 10. Positive shift moves left (multiply by 10^shift), negative shift moves right.
+// In other words, the value of shift is added to the exponent of the decimal.
+//
+// Examples:
+//
+//	d, _ := NewFromString("123.45")
+//	d.Shift(1).String()   // "1234.5"
+//	d.Shift(-1).String()  // "12.345"
+func (d Decimal) Shift(shift int32) Decimal {
+	v, m, e := d.vme()
+
+	// magic values (Null, Zero, NearZero, +Inf, -Inf, NaN) are returned as-is
+	if m == 0 {
+		return d
+	}
+
+	return vmeAsDecimal(v, m, e+int64(shift))
+}
+
 // RoundBank rounds the decimal to places decimal places.
 // If the final digit to round is equidistant from the nearest two integers the
 // rounded value is taken as the even number
@@ -360,6 +482,37 @@ func (d Decimal) RoundBank(places int32) Decimal {
 	v, m, e := d.vme()
 
 	return vmeAsDecimal(vmeRoundBank(v, m, e, places))
+}
+
+// RoundCash rounds the decimal to the nearest multiple of the given Cash interval (in units of 10^(-2), or hundredths).
+// Valid intervals are 5, 10, 25, 50 and 100 (Swedish/cash rounding). Panics for any other interval.
+//
+// Examples:
+//
+//	NewFromFloat(3.43).RoundCash(5)   // 3.45
+//	NewFromFloat(3.45).RoundCash(10)  // 3.5
+//	NewFromFloat(3.41).RoundCash(25)  // 3.5
+//	NewFromFloat(3.75).RoundCash(50)  // 4
+//	NewFromFloat(3.50).RoundCash(100) // 4
+func (d Decimal) RoundCash(interval uint8) Decimal {
+	var factor Decimal
+
+	switch interval {
+	case 5:
+		factor = 20
+	case 10:
+		factor = 10
+	case 25:
+		factor = 4
+	case 50:
+		factor = 2
+	case 100:
+		factor = 1
+	default:
+		panic("Decimal does not support this Cash rounding interval, valid intervals are 5, 10, 25, 50 and 100")
+	}
+
+	return d.Mul(factor).Round(0).Div(factor)
 }
 
 // IsNull return
@@ -517,15 +670,9 @@ func (d Decimal) IntPartErr() (int64, error) {
 	v, m, e := d.vme()
 
 	if v&loss != 0 && m == 0 {
-		if e == decimalMaxE {
-			if d < 0 {
-				return math.MinInt64, ErrOutOfRange
-			} else {
-				return math.MaxInt64, ErrOutOfRange
-			}
-		} else {
-			return 0, ErrOutOfRange
-		}
+		// vme() rewrites e to math.MaxInt64 / math.MinInt64 / [1..14] for magic values when m == 0,
+		// so e == decimalMaxE is unreachable here — only the catch-all "out of range" path runs.
+		return 0, ErrOutOfRange
 	}
 
 	if e == 0 {
@@ -586,26 +733,17 @@ func (d Decimal) Float64() (f float64, exact bool) {
 	}
 
 	f = float64(m)
+	// e is bounded by [-16, 15] for non-magic Decimals, so the cascading loops in core.go's wider-mantissa cousins are not needed here
 	if e == 0 {
 		if m >= (1 << 54) {
 			exact = false
 		}
 	} else if e > 0 {
-		for e >= int64(len(tenPow)) {
-			f *= float64(tenPow[len(tenPow)-1])
-			e -= int64(len(tenPow) - 1)
-			exact = false
-		}
 		f *= float64(tenPow[e])
 		if f > float64(1<<54) {
 			exact = false
 		}
-	} else if e < 0 {
-		for e <= -int64(len(tenPow)) {
-			f /= float64(tenPow[len(tenPow)-1])
-			e += int64(len(tenPow) - 1)
-			exact = false
-		}
+	} else {
 		f /= float64(tenPow[-e])
 		// may compute exact more accurately
 	}
@@ -657,6 +795,52 @@ func (d1 Decimal) Pow(d2 Decimal) Decimal {
 func (d1 Decimal) PowWithPrecision(d2 Decimal, precision int32) (Decimal, error) {
 	// compatibility issue as this code do not return error like shopspring decimal
 	return d1.Pow(d2), nil
+}
+
+// PowInt32 returns d to the power of exp using fast exponentiation by squaring (so without going through float64 like Pow).
+// When exp is negative, the result is rounded to PowPrecisionNegativeExponent digits after the decimal point.
+//
+// Returns an error only when d is zero and exp is zero (indeterminate form 0**0).
+//
+// Examples:
+//
+//	NewFromFloat(4).PowInt32(4)    // 256, nil
+//	NewFromFloat(3.13).PowInt32(5) // 300.4150512793, nil
+//	NewFromFloat(15.2).PowInt32(-2) // 0.0043282548476454, nil
+func (d Decimal) PowInt32(exp int32) (Decimal, error) {
+	if exp == 0 {
+		if d.IsExactlyZero() {
+			return Null, errors.New("indeterminate form: 0**0")
+		}
+
+		return 1, nil
+	}
+
+	n := int64(exp)
+	if n < 0 {
+		n = -n
+	}
+
+	// fast exponentiation by squaring
+	result := Decimal(1)
+	base := d
+
+	for n > 0 {
+		if n&1 == 1 {
+			result = result.Mul(base)
+		}
+
+		n >>= 1
+		if n > 0 {
+			base = base.Mul(base)
+		}
+	}
+
+	if exp < 0 {
+		result = Decimal(1).DivRound(result, int32(PowPrecisionNegativeExponent))
+	}
+
+	return result, nil
 }
 
 // Atan returns the arctangent, in radians, of d.
@@ -783,8 +967,8 @@ func NewFromFloat32(value float32) Decimal {
 
 	switch e {
 	case 255: // infinite and NaNs
-		if (b << 9) == 0 {
-			if (b & sign) != 0 {
+		if (b & 0x7fffff) == 0 {
+			if (b & 0x80000000) != 0 {
 				return NegativeInfinity
 			} else {
 				return PositiveInfinity
@@ -991,6 +1175,16 @@ func (d Decimal) BytesToFixedBank(b []byte, places int32) []byte {
 //	NewFromFloat(5.45).StringFixedBank(2) // output: "5.45"
 //	NewFromFloat(5.45).StringFixedBank(3) // output: "5.450"
 //	NewFromFloat(545).StringFixedBank(-1) // output: "540"
+// StringFixedCash returns a Cash-rounded fixed-point string with 2 digits after the decimal point. See RoundCash for the interval semantics.
+//
+// Examples:
+//
+//	NewFromFloat(3.43).StringFixedCash(5)   // "3.45"
+//	NewFromFloat(3.75).StringFixedCash(50)  // "4.00"
+func (d Decimal) StringFixedCash(interval uint8) string {
+	return d.RoundCash(interval).StringFixed(2)
+}
+
 func (d Decimal) StringFixedBank(places int32) string {
 	v, m, e := d.vme()
 
