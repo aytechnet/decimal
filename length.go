@@ -33,19 +33,22 @@ const (
 var (
 	lengthUnits = [...]unit{
 		// International System of Units where 'm' is the base unit
+		// Note: Mm, Gm, Tm are intentionally omitted because unitHash is case-insensitive and they would collide with mm
 		{u: "m", c: 0, v: 0},
 		{u: "km", c: 3, v: 1 << lengthBitT},
-		{u: "cm", c: -2, v: 2 << lengthBitT},
-		{u: "mm", c: -3, v: 3 << lengthBitT},
-		{u: "µm", c: -6, v: 4 << lengthBitT},
-		{u: "nm", c: -9, v: 5 << lengthBitT},
-		{u: "pm", c: -12, v: 6 << lengthBitT},
+		{u: "dm", c: -1, v: 2 << lengthBitT},
+		{u: "cm", c: -2, v: 3 << lengthBitT},
+		{u: "mm", c: -3, v: 4 << lengthBitT},
+		{u: "µm", c: -6, v: 5 << lengthBitT},
+		{u: "nm", c: -9, v: 6 << lengthBitT},
+		{u: "pm", c: -12, v: 7 << lengthBitT},
 
-		{}, // 7 is reserved for future use
-		{}, // 8 is reserved for future use
-		{}, // 9 is reserved for future use
+		{}, //  8 is reserved for future use
+		{}, //  9 is reserved for future use
 		{}, // 10 is reserved for future use
-		{}, // 11 is reserved for future use
+
+		// Unité Astronomique
+		{u: "au", c: 1495978707 + 2<<decimalBitE /* 1.495978707x10^11 m */, v: 11 << lengthBitT},
 
 		// International Yard and Pound (NIST 1959, exact)
 		{u: "in", c: 254 + 28<<decimalBitE /* 0.0254 m */, v: 12 << lengthBitT},
@@ -54,7 +57,8 @@ var (
 		{u: "mi", c: 1609344 + 29<<decimalBitE /* 1609.344 m */, v: 15 << lengthBitT},
 
 		// aliases
-		{u: "um", c: -6, v: 4 << lengthBitT},
+		{u: "um", c: -6, v: 5 << lengthBitT},
+		{u: "ua", c: 1495978707 + 2<<decimalBitE /* 1.495978707x10^11 m */, v: 11 << lengthBitT},
 	}
 )
 
