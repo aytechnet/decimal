@@ -17,8 +17,9 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
  - support infinity and NaN decimal as well as near zero value, near negative zero and near positive zero (loss bit always set in such cases).
- - since **int64** is used internally, Decimal are **immutable** as no internal pointer are used.
+ - since **int64** is used internally, Decimal are **immutable** as no internal pointer is used.
  - **unique representation** for a given decimal, suitable for use as a key in hash table or by using == or != operator directly.
+ - support Weight and Length decimal using 53 bits mantissa and 4 bits of type unit.
  - **JSON, XML** - compatible with [encoding/json] and [encoding/xml].
  - compatible with [shopspring/decimal](https://github.com/shopspring/decimal) except for BigInt and BigRat methods not supported.
 
