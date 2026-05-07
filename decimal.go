@@ -1265,28 +1265,85 @@ func (d Decimal) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+//
+// Accepts the v1 format (header byte + optional uvarint mantissa) and the v2 extension
+// formats for Decimal, Weight and Length (see BINARY_FORMAT.md). When fed a Weight or
+// Length extension stream, the unit is read but discarded and only the scalar value
+// (m × 10^exp) is returned.
 func (d *Decimal) UnmarshalBinary(data []byte) error {
 	if len(data) == 0 {
 		return ErrFormat
 	}
 
-	u := uint64(data[0]) << (decimalBitE - 1)
+	// v1 normal: bit 0 of header set, uvarint mantissa follows
 	if data[0]&1 != 0 {
-		// clear low bit
-		u = u ^ (1 << (decimalBitE - 1))
-		if m, n := binary.Uvarint(data[1:]); n <= 0 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		u ^= 1 << (decimalBitE - 1) // clear bit 56 (was force-set to 1 by the encoder)
+		m, n := binary.Uvarint(data[1:])
+		if n <= 0 {
 			return ErrFormat
-		} else {
-			u |= m
 		}
+		u |= m
+		if u&sign != 0 && Decimal(u) != Zero {
+			*d = -Decimal(u ^ sign)
+		} else {
+			*d = Decimal(u)
+		}
+		return nil
 	}
 
-	if u&sign != 0 && Decimal(u) != Zero {
-		*d = -Decimal(u ^ sign)
-	} else {
-		*d = Decimal(u)
+	// v1 magic: a single byte encodes the whole value (Null, Zero, NaN, ±Inf, ~0…)
+	if len(data) == 1 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		if u&sign != 0 && Decimal(u) != Zero {
+			*d = -Decimal(u ^ sign)
+		} else {
+			*d = Decimal(u)
+		}
+		return nil
 	}
 
+	// v2 extension: opcode + (optional unit uvarint for Weight/Length) + uvarint(|exp|) + uvarint(|m|)
+	typeMarker, signNeg, negE, lossSet, ok := binDecodeOpcode(data[0])
+	if !ok {
+		return ErrFormat
+	}
+
+	rest := data[1:]
+
+	// For Weight/Length extensions, consume the unit uvarint and ignore it (we only keep the scalar)
+	if typeMarker == binExpWeight || typeMarker == binExpLength {
+		_, n := binary.Uvarint(rest)
+		if n <= 0 {
+			return ErrFormat
+		}
+		rest = rest[n:]
+	}
+
+	expAbs, nE := binary.Uvarint(rest)
+	if nE <= 0 {
+		return ErrFormat
+	}
+	rest = rest[nE:]
+
+	mAbs, nM := binary.Uvarint(rest)
+	if nM <= 0 {
+		return ErrFormat
+	}
+
+	var v uint64
+	if signNeg {
+		v |= sign
+	}
+	if lossSet {
+		v |= loss
+	}
+	e := int64(expAbs)
+	if negE {
+		e = -e
+	}
+
+	*d = vmeAsDecimal(v, mAbs, e)
 	return nil
 }
 

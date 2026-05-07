@@ -1,6 +1,7 @@
 package decimal
 
 import (
+	"encoding/binary"
 	"math"
 )
 
@@ -334,6 +335,117 @@ func (w *Weight) UnmarshalText(text []byte) error {
 // MarshalText implements the encoding.TextMarshaler interface for XML serialization.
 func (w Weight) MarshalText() (text []byte, err error) {
 	return w.BytesTo(nil), nil
+}
+
+// MarshalBinary implements the encoding.BinaryMarshaler interface.
+//
+// When the unit is kg (the default unit code 0) the encoding is identical to a Decimal of the same
+// scalar value (1-10 bytes), so a Weight in kg and a Decimal with the same value share the same
+// byte sequence. For any other unit the v2 Weight extension format is used (see BINARY_FORMAT.md).
+// Magic values (NaN, ±Inf, NearZero variants) always use the v1 magic byte and lose the unit info.
+func (w Weight) MarshalBinary() (data []byte, err error) {
+	v, m, e, _ := w.vmet()
+	unit := (v & weightTBitmask) >> weightBitT
+
+	if m == 0 || unit == 0 {
+		return marshalBinaryV1(v, m, e), nil
+	}
+
+	return marshalBinaryV2Ext(binExpWeight, v, m, e, unit), nil
+}
+
+// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+//
+// Accepts the v1 format (assumed to be in kg), the v2 Decimal extension (assumed to be in kg),
+// and the v2 Weight extension (with explicit unit). A v2 Length extension is rejected with ErrFormat.
+func (w *Weight) UnmarshalBinary(data []byte) error {
+	if len(data) == 0 {
+		return ErrFormat
+	}
+
+	// v1 normal: bit 0 set, mantissa varint follows. Assume unit = kg.
+	if data[0]&1 != 0 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		u ^= 1 << (decimalBitE - 1)
+		m, n := binary.Uvarint(data[1:])
+		if n <= 0 {
+			return ErrFormat
+		}
+		u |= m
+		if u&sign != 0 && Weight(u) != Weight(math.MinInt64) {
+			*w = -Weight(u ^ sign)
+		} else {
+			*w = Weight(u)
+		}
+		return nil
+	}
+
+	// v1 magic: single byte, assume unit = kg
+	if len(data) == 1 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		if u&sign != 0 && Weight(u) != Weight(math.MinInt64) {
+			*w = -Weight(u ^ sign)
+		} else {
+			*w = Weight(u)
+		}
+		return nil
+	}
+
+	// v2 extension
+	typeMarker, signNeg, negE, lossSet, ok := binDecodeOpcode(data[0])
+	if !ok {
+		return ErrFormat
+	}
+
+	rest := data[1:]
+	var unit uint64
+
+	switch typeMarker {
+	case binExpDecimal:
+		// Decimal extension read as Weight: assume unit = kg (= 0)
+		unit = 0
+	case binExpWeight:
+		var n int
+		unit, n = binary.Uvarint(rest)
+		if n <= 0 {
+			return ErrFormat
+		}
+		if unit >= uint64(len(weightUnits)) || weightUnits[unit].u == "" {
+			return ErrUnitSyntax
+		}
+		rest = rest[n:]
+	default:
+		// Length extension or any other unsupported type marker
+		return ErrFormat
+	}
+
+	expAbs, nE := binary.Uvarint(rest)
+	if nE <= 0 {
+		return ErrFormat
+	}
+	rest = rest[nE:]
+
+	mAbs, nM := binary.Uvarint(rest)
+	if nM <= 0 {
+		return ErrFormat
+	}
+
+	var v uint64
+	if signNeg {
+		v |= sign
+	}
+	if lossSet {
+		v |= loss
+	}
+	v |= unit << weightBitT
+
+	e := int64(expAbs)
+	if negE {
+		e = -e
+	}
+
+	*w = vmeAsWeight(v, mAbs, e)
+	return nil
 }
 
 // IsNull return

@@ -2,6 +2,7 @@ package decimal
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
 	"math/bits"
 	"sync/atomic"
@@ -22,6 +23,13 @@ const (
 
 	primeUnicodeLo uint64 = 257     // first prime number above 256
 	primeUnicodeHi uint64 = 1114111 // first prime number above biggest unicode value
+
+	// Binary format v2 extension opcodes use the bits 5..1 of the header byte (the v1 exponent
+	// field) as a "type marker" signed-5-bit value: ±2 = Decimal, ±4 = Weight, ±6 = Length.
+	// See BINARY_FORMAT.md for the full specification.
+	binExpDecimal = 2
+	binExpWeight  = 4
+	binExpLength  = 6
 )
 
 // array of power of ten suitable to be hold in uint64
@@ -1208,4 +1216,120 @@ func fixFloatMantissa(m *uint64) bool {
 	}
 
 	return false
+}
+
+// binEncodeMagicByte builds a v1-format magic header byte from the (sign, loss, exponent) tuple.
+// e is the "decoded" exponent as returned by vme(): math.MaxInt64 for ±Inf, math.MinInt64 for ±~0,
+// otherwise the actual exponent (already in [-16, 15]).
+func binEncodeMagicByte(signNeg, lossSet bool, e int64) byte {
+	var b byte
+	if signNeg {
+		b |= 0x80
+	}
+	if lossSet {
+		b |= 0x40
+	}
+	encE := e
+	switch e {
+	case math.MaxInt64:
+		encE = decimalMaxE
+	case math.MinInt64:
+		encE = decimalMinE
+	}
+	b |= byte(encE&0x1F) << 1
+	return b
+}
+
+// binEncodeOpcode builds a v2 extension opcode for the given type marker (2, 4 or 6),
+// sign of mantissa (signNeg), sign of exponent (negE), and loss flag.
+func binEncodeOpcode(typeMarker int, signNeg, negE, lossSet bool) byte {
+	var b byte
+	if signNeg {
+		b |= 0x80
+	}
+	if lossSet {
+		b |= 0x40
+	}
+	e := typeMarker
+	if negE {
+		e = -e
+	}
+	b |= byte(e&0x1F) << 1
+	return b
+}
+
+// binDecodeOpcode extracts the type marker (2/4/6), mantissa sign, exponent sign and loss flag from
+// a v2 extension opcode. Returns ok=false when the byte is not a recognized extension opcode
+// (bit 0 set, or exponent marker not in {±2, ±4, ±6}).
+func binDecodeOpcode(b byte) (typeMarker int, signNeg, negE, lossSet, ok bool) {
+	if b&1 != 0 {
+		return 0, false, false, false, false
+	}
+	signNeg = b&0x80 != 0
+	lossSet = b&0x40 != 0
+
+	// sign-extend bits 5..1 as a 5-bit signed integer in [-16, 15]
+	raw := int8((b&0x3E)<<2) >> 3
+
+	if raw < 0 {
+		negE = true
+		typeMarker = -int(raw)
+	} else {
+		typeMarker = int(raw)
+	}
+
+	switch typeMarker {
+	case binExpDecimal, binExpWeight, binExpLength:
+		ok = true
+	}
+	return
+}
+
+// marshalBinaryV1 encodes a (v, m, e) tuple in the v1 binary format. v should hold sign and loss
+// bits only (any unit bits are ignored). For magic values (m == 0) e may be math.MinInt64 or
+// math.MaxInt64; binEncodeMagicByte clamps those back to the 5-bit range.
+func marshalBinaryV1(v, m uint64, e int64) []byte {
+	signNeg := v&sign != 0
+	lossSet := v&loss != 0
+	b := binEncodeMagicByte(signNeg, lossSet, e)
+
+	if m == 0 {
+		return []byte{b}
+	}
+
+	b |= 0x01 // mantissa-flag: a uvarint mantissa follows
+	var buff [10]byte
+	buff[0] = b
+	n := binary.PutUvarint(buff[1:], m)
+	return buff[:n+1]
+}
+
+// marshalBinaryV2Ext encodes a (typeMarker, v, m, e, unit) tuple in the v2 extension format.
+// typeMarker selects the family (binExpDecimal / binExpWeight / binExpLength). For Decimal the
+// unit argument is ignored; for Weight/Length it is encoded as a uvarint right after the opcode.
+func marshalBinaryV2Ext(typeMarker int, v, m uint64, e int64, unit uint64) []byte {
+	signNeg := v&sign != 0
+	lossSet := v&loss != 0
+	negE := e < 0
+	absE := uint64(e)
+	if negE {
+		absE = uint64(-e)
+	}
+
+	opcode := binEncodeOpcode(typeMarker, signNeg, negE, lossSet)
+
+	// Worst case 28 bytes: 1 (opcode) + 9 (unit uvarint) + 9 (exp uvarint) + 9 (mantissa uvarint).
+	var buff [28]byte
+	buff[0] = opcode
+	n := 1
+
+	if typeMarker == binExpWeight || typeMarker == binExpLength {
+		n += binary.PutUvarint(buff[n:], unit)
+	}
+	n += binary.PutUvarint(buff[n:], absE)
+	n += binary.PutUvarint(buff[n:], m)
+
+	out := make([]byte, n)
+	copy(out, buff[:n])
+	return out
 }

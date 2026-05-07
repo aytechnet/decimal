@@ -13,7 +13,7 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - **low-memory** usage as internal representation is **int64** and value between -144115188075855871 and 144115188075855871 can safely be used as Decimal.
  - **no heap allocations** to prevent garbage collector impact.
  - **high performance**, arithmetic operations are 2x to 41x faster than [shopspring/decimal](https://github.com/shopspring/decimal) (see Benchmarks below).
- - compact binary serialization from 1 to 10 bytes.
+ - compact binary serialization from 1 to 10 bytes — **open, documented, interoperable** format (see [BINARY_FORMAT.md](BINARY_FORMAT.md); same format covers `Weight` and `Length` with explicit unit support).
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
  - support infinity and NaN decimal as well as near zero value, near negative zero and near positive zero (loss bit always set in such cases).

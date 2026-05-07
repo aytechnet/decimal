@@ -2418,6 +2418,441 @@ func TestRequireFromString(t *testing.T) {
 	_ = RequireFromString("not-a-number")
 }
 
+func TestBinaryV2DecimalCrossType(t *testing.T) {
+	// Decimal reads a Weight v2 stream and recovers the scalar value (Option A: discard unit)
+	wlb, _ := NewWeightFromString("11lb")
+	b, err := wlb.MarshalBinary()
+	if err != nil {
+		t.Fatalf(`MarshalBinary(11lb) err=%v`, err)
+	}
+	var d Decimal
+	if err := d.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`Decimal.UnmarshalBinary(Weight 11lb) err=%v`, err)
+	}
+	if d != 11 {
+		t.Errorf(`Decimal read of Weight 11lb should be 11 (the bare scalar), got %v`, d)
+	}
+
+	// Decimal reads a Length v2 stream
+	l, _ := NewLengthFromString("12in")
+	b, err = l.MarshalBinary()
+	if err != nil {
+		t.Fatalf(`MarshalBinary(12in) err=%v`, err)
+	}
+	if err := d.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`Decimal.UnmarshalBinary(Length 12in) err=%v`, err)
+	}
+	if d != 12 {
+		t.Errorf(`Decimal read of Length 12in should be 12, got %v`, d)
+	}
+}
+
+func TestBinaryV2DecimalExtensionRoundTrip(t *testing.T) {
+	// Hand-craft a Decimal v2 extension stream to verify a non-aytechnet writer's output is consumable.
+	// Format: opcode 0x44 (Decimal loss +exp +m), uvarint(exp=29), uvarint(m=12345)
+	//         value = 12345 * 10^29 > Decimal max (≈1.44e32) → clamps to +Inf with loss.
+	stream := []byte{0x44, 29, 0xb9, 0x60}
+	var d Decimal
+	if err := d.UnmarshalBinary(stream); err != nil {
+		t.Fatalf(`UnmarshalBinary(Decimal v2 ext huge) err=%v`, err)
+	}
+	if d != PositiveInfinity {
+		t.Errorf(`12345e29 should clamp to +Inf, got %v`, d)
+	}
+
+	// Now a v2 stream that fits in Decimal range: 12345 * 10^-3 = 12.345
+	// opcode 0x7C (Decimal loss -exp +m), uvarint(3), uvarint(12345)
+	stream = []byte{0x7C, 3, 0xb9, 0x60}
+	if err := d.UnmarshalBinary(stream); err != nil {
+		t.Fatalf(`UnmarshalBinary(12.345 lossy) err=%v`, err)
+	}
+	if !d.Equal(New(12345, -3)) {
+		t.Errorf(`12345e-3 should be 12.345, got %v`, d)
+	}
+	if d.IsExact() {
+		t.Errorf(`v2 lossy stream should keep the loss bit, got exact %v`, d)
+	}
+
+	// Exact variant (opcode 0x3C = Decimal exact -exp +m)
+	stream = []byte{0x3C, 3, 0xb9, 0x60}
+	if err := d.UnmarshalBinary(stream); err != nil {
+		t.Fatalf(`UnmarshalBinary(12.345 exact) err=%v`, err)
+	}
+	if d != New(12345, -3) {
+		t.Errorf(`12345e-3 exact should be 12.345, got %v`, d)
+	}
+}
+
+func TestBinaryV2WeightRoundTrip(t *testing.T) {
+	cases := []string{"0kg", "5kg", "-5kg", "5g", "0.5lb", "12oz", "1mcg"}
+	for _, s := range cases {
+		w, err := NewWeightFromString(s)
+		if err != nil {
+			t.Fatalf(`NewWeightFromString(%q) err=%v`, s, err)
+		}
+		b, err := w.MarshalBinary()
+		if err != nil {
+			t.Fatalf(`%v.MarshalBinary() err=%v`, w, err)
+		}
+		var w2 Weight
+		if err := w2.UnmarshalBinary(b); err != nil {
+			t.Fatalf(`UnmarshalBinary(% x) err=%v for %q`, b, err, s)
+		}
+		if w != w2 {
+			t.Errorf(`round-trip for %q: %v (0x%016x) → % x → %v (0x%016x)`, s, w, uint64(w), b, w2, uint64(w2))
+		}
+	}
+
+	// Weight kg encodes identically to a Decimal of the same value
+	w, _ := NewWeightFromString("123.45kg")
+	d := New(12345, -2)
+	wB, _ := w.MarshalBinary()
+	dB, _ := d.MarshalBinary()
+	if string(wB) != string(dB) {
+		t.Errorf(`Weight 123.45kg (% x) should byte-equal Decimal 123.45 (% x)`, wB, dB)
+	}
+}
+
+func TestBinaryV2LengthRoundTrip(t *testing.T) {
+	cases := []string{"0m", "5m", "-5m", "5km", "100cm", "1ft", "1mi", "1au"}
+	for _, s := range cases {
+		l, err := NewLengthFromString(s)
+		if err != nil {
+			t.Fatalf(`NewLengthFromString(%q) err=%v`, s, err)
+		}
+		b, err := l.MarshalBinary()
+		if err != nil {
+			t.Fatalf(`%v.MarshalBinary() err=%v`, l, err)
+		}
+		var l2 Length
+		if err := l2.UnmarshalBinary(b); err != nil {
+			t.Fatalf(`UnmarshalBinary(% x) err=%v for %q`, b, err, s)
+		}
+		if l != l2 {
+			t.Errorf(`round-trip for %q: %v (0x%016x) → % x → %v (0x%016x)`, s, l, uint64(l), b, l2, uint64(l2))
+		}
+	}
+}
+
+func TestBinaryV2CrossRefusal(t *testing.T) {
+	// Weight should refuse a Length v2 stream and vice versa
+	l1ft, _ := NewLengthFromString("1ft")
+	bL, _ := l1ft.MarshalBinary()
+	var w Weight
+	if err := w.UnmarshalBinary(bL); err == nil {
+		t.Errorf(`Weight should refuse Length v2 stream, got %v`, w)
+	}
+
+	w1lb, _ := NewWeightFromString("1lb")
+	bW, _ := w1lb.MarshalBinary()
+	var l Length
+	if err := l.UnmarshalBinary(bW); err == nil {
+		t.Errorf(`Length should refuse Weight v2 stream, got %v`, l)
+	}
+}
+
+func TestBinaryV2InteropAcrossTypes(t *testing.T) {
+	// Decimal 5 round-trips into both Weight (= 5kg) and Length (= 5m)
+	d := Decimal(5)
+	b, _ := d.MarshalBinary()
+
+	var w Weight
+	if err := w.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`Weight.UnmarshalBinary(Decimal 5) err=%v`, err)
+	}
+	if w.Unit() != "kg" {
+		t.Errorf(`Decimal 5 read as Weight should be in kg, got unit=%q`, w.Unit())
+	}
+
+	var ll Length
+	if err := ll.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`Length.UnmarshalBinary(Decimal 5) err=%v`, err)
+	}
+	if ll.Unit() != "m" {
+		t.Errorf(`Decimal 5 read as Length should be in m, got unit=%q`, ll.Unit())
+	}
+}
+
+func TestBinaryV2WeightMagicReads(t *testing.T) {
+	// v1 magic byte read as Weight: NearZero (0xC0) → -Weight(...)
+	var w Weight
+	if err := w.UnmarshalBinary([]byte{0xC0}); err != nil {
+		t.Fatalf(`Weight.UnmarshalBinary(0xC0) err=%v`, err)
+	}
+	if w >= 0 {
+		t.Errorf(`NearZero magic should be negative-bit Weight, got %v (0x%016x)`, w, uint64(w))
+	}
+
+	// Decimal extension read as Weight: opcode 0x44 (Decimal loss +exp +m), exp=0, m=5 → 5kg lossy
+	if err := w.UnmarshalBinary([]byte{0x44, 0x00, 0x05}); err != nil {
+		t.Fatalf(`Weight.UnmarshalBinary(Decimal v2 ext) err=%v`, err)
+	}
+	if w.Unit() != "kg" || w.IsExact() {
+		t.Errorf(`Decimal v2 ext read as Weight should be in kg with loss bit, got %v unit=%q exact=%v`, w, w.Unit(), w.IsExact())
+	}
+
+	// truncated unit varint in Weight extension (uvarint byte 0x80 continues but no following byte)
+	if err := w.UnmarshalBinary([]byte{0x08, 0x80}); err == nil {
+		t.Errorf(`truncated unit varint should error`)
+	}
+
+	// negative-mantissa Weight extension: opcode 0x88 (Weight exact +exp -m), unit=5(g), exp=0, m=3 → -3g
+	if err := w.UnmarshalBinary([]byte{0x88, 0x05, 0x00, 0x03}); err != nil {
+		t.Fatalf(`Weight.UnmarshalBinary(-3g) err=%v`, err)
+	}
+	expected, _ := NewWeightFromString("-3g")
+	if w != expected {
+		t.Errorf(`-3g round-trip mismatch: %v vs %v`, w, expected)
+	}
+
+	// lossy negative-exp Weight extension: opcode 0x78 (Weight loss -exp +m), unit=5(g), exp=2, m=3 → ~0.03g
+	if err := w.UnmarshalBinary([]byte{0x78, 0x05, 0x02, 0x03}); err != nil {
+		t.Fatalf(`Weight.UnmarshalBinary(~0.03g) err=%v`, err)
+	}
+	if w.IsExact() {
+		t.Errorf(`Weight v2 lossy stream should keep loss bit, got exact %v`, w)
+	}
+}
+
+func TestBinaryV2LengthMagicReads(t *testing.T) {
+	var l Length
+	if err := l.UnmarshalBinary([]byte{0xC0}); err != nil {
+		t.Fatalf(`Length.UnmarshalBinary(0xC0) err=%v`, err)
+	}
+	if l >= 0 {
+		t.Errorf(`NearZero magic should be negative-bit Length, got %v`, l)
+	}
+
+	// Decimal v2 ext read as Length
+	if err := l.UnmarshalBinary([]byte{0x44, 0x00, 0x05}); err != nil {
+		t.Fatalf(`Length.UnmarshalBinary(Decimal v2 ext) err=%v`, err)
+	}
+	if l.Unit() != "m" {
+		t.Errorf(`Decimal v2 ext read as Length should be in m, got unit=%q`, l.Unit())
+	}
+
+	// truncated unit varint in Length extension
+	if err := l.UnmarshalBinary([]byte{0x0c, 0x80}); err == nil {
+		t.Errorf(`truncated unit varint should error`)
+	}
+
+	// negative-mantissa Length extension: opcode 0x8C (Length exact +exp -m), unit=3(cm), exp=0, m=3 → -3cm
+	if err := l.UnmarshalBinary([]byte{0x8C, 0x03, 0x00, 0x03}); err != nil {
+		t.Fatalf(`Length.UnmarshalBinary(-3cm) err=%v`, err)
+	}
+	expected, _ := NewLengthFromString("-3cm")
+	if l != expected {
+		t.Errorf(`-3cm round-trip mismatch: %v vs %v (0x%016x vs 0x%016x)`, l, expected, uint64(l), uint64(expected))
+	}
+
+	// lossy Length extension
+	if err := l.UnmarshalBinary([]byte{0x74, 0x02, 0x02, 0x03}); err != nil {
+		t.Fatalf(`Length.UnmarshalBinary err=%v`, err)
+	}
+	if l.IsExact() {
+		t.Errorf(`Length v2 lossy stream should keep loss bit, got exact %v`, l)
+	}
+
+	// invalid opcode (typeMarker = 1, unrecognized)
+	if err := l.UnmarshalBinary([]byte{0x02, 0x01, 0x01}); err == nil {
+		t.Errorf(`Length should refuse unknown opcode`)
+	}
+}
+
+func TestBinaryV2EncodeBranches(t *testing.T) {
+	// negative Weight with non-default unit: forces binEncodeOpcode signNeg branch
+	w, _ := NewWeightFromString("-5g")
+	b, err := w.MarshalBinary()
+	if err != nil {
+		t.Fatalf(`MarshalBinary err=%v`, err)
+	}
+	var w2 Weight
+	if err := w2.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	if w != w2 {
+		t.Errorf(`-5g round-trip: %v vs %v`, w, w2)
+	}
+
+	// lossy Length with non-default unit: forces binEncodeOpcode lossSet branch and round-trips
+	l1lb, _ := NewWeightFromString("1lb")
+	l3kg, _ := NewWeightFromString("3kg")
+	wsum := l1lb.Add(l3kg) // result has loss bit (lb→kg conversion is irrational in decimal)
+	if wsum.Unit() != "lb" || wsum.IsExact() {
+		t.Fatalf(`expected lossy lb, got %v exact=%v`, wsum, wsum.IsExact())
+	}
+	b, err = wsum.MarshalBinary()
+	if err != nil {
+		t.Fatalf(`MarshalBinary err=%v`, err)
+	}
+	if err := w2.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	if wsum != w2 {
+		t.Errorf(`lossy lb round-trip: %v vs %v`, wsum, w2)
+	}
+}
+
+func TestBinaryV2HelperEdges(t *testing.T) {
+	// binDecodeOpcode rejects bytes with bit 0 set (those are v1 normal headers, not extension opcodes)
+	if _, _, _, _, ok := binDecodeOpcode(0x01); ok {
+		t.Errorf(`binDecodeOpcode(0x01) should refuse — bit 0 set`)
+	}
+	if _, _, _, _, ok := binDecodeOpcode(0xFF); ok {
+		t.Errorf(`binDecodeOpcode(0xFF) should refuse — bit 0 set`)
+	}
+
+	// Decimal reading a Weight v2 ext stream with truncated unit varint
+	var d Decimal
+	if err := d.UnmarshalBinary([]byte{0x08, 0x80}); err == nil {
+		t.Errorf(`Decimal reading truncated Weight v2 unit varint should error`)
+	}
+
+	// Weight rejecting an unrecognized extension opcode (typeMarker=3, not in {2,4,6})
+	var w Weight
+	if err := w.UnmarshalBinary([]byte{0x06, 0x01, 0x01}); err == nil {
+		t.Errorf(`Weight should refuse opcode 0x06 (typeMarker=3)`)
+	}
+}
+
+func TestBinaryV2WeightExtremeValues(t *testing.T) {
+	// underflow inside a non-default unit: 1e-50g → ±~0g (magic with unit). Marshalled as v1 magic
+	// (the magic byte loses the unit, that's the documented trade-off for magic values).
+	w, _ := NewWeightFromString("1e-50g")
+	b, err := w.MarshalBinary()
+	if err != nil {
+		t.Fatalf(`MarshalBinary err=%v`, err)
+	}
+	var w2 Weight
+	if err := w2.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	// after round-trip the unit is kg (since v1 magic doesn't carry unit), but the magic-ness is preserved
+	if w2.IsExact() {
+		t.Errorf(`magic value should keep loss bit through round-trip, got exact %v`, w2)
+	}
+
+	// overflow: 1e50g → ±Inf (magic)
+	w, _ = NewWeightFromString("1e50g")
+	b, _ = w.MarshalBinary()
+	if err := w2.UnmarshalBinary(b); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	if !w2.IsInfinite() {
+		t.Errorf(`overflowed weight should round-trip as Infinite, got %v`, w2)
+	}
+}
+
+func TestBinaryV2WeightUnmarshalErrors(t *testing.T) {
+	var w Weight
+
+	// empty
+	if err := w.UnmarshalBinary(nil); err == nil {
+		t.Errorf(`empty data should error`)
+	}
+	// v1 normal truncated (header + missing varint)
+	if err := w.UnmarshalBinary([]byte{0x01}); err == nil {
+		t.Errorf(`v1 normal without varint should error`)
+	}
+	// v2 Weight ext: missing exp uvarint
+	if err := w.UnmarshalBinary([]byte{0x08, 0x05}); err == nil {
+		t.Errorf(`v2 Weight ext missing exp should error`)
+	}
+	// v2 Weight ext: missing mantissa uvarint
+	if err := w.UnmarshalBinary([]byte{0x08, 0x05, 0x01}); err == nil {
+		t.Errorf(`v2 Weight ext missing mantissa should error`)
+	}
+	// v2 Length ext: refused
+	if err := w.UnmarshalBinary([]byte{0x0c, 0x01, 0x01, 0x01}); err == nil {
+		t.Errorf(`Weight should refuse Length v2 ext`)
+	}
+	// reserved unit (index 10 in weightUnits is empty/reserved)
+	if err := w.UnmarshalBinary([]byte{0x08, 10, 0x00, 0x01}); err == nil {
+		t.Errorf(`Weight with reserved unit code 10 should error`)
+	}
+}
+
+func TestBinaryV2LengthUnmarshalErrors(t *testing.T) {
+	var l Length
+
+	if err := l.UnmarshalBinary(nil); err == nil {
+		t.Errorf(`empty data should error`)
+	}
+	if err := l.UnmarshalBinary([]byte{0x01}); err == nil {
+		t.Errorf(`v1 normal without varint should error`)
+	}
+	if err := l.UnmarshalBinary([]byte{0x0c, 0x05}); err == nil {
+		t.Errorf(`v2 Length ext missing exp should error`)
+	}
+	if err := l.UnmarshalBinary([]byte{0x0c, 0x05, 0x01}); err == nil {
+		t.Errorf(`v2 Length ext missing mantissa should error`)
+	}
+	if err := l.UnmarshalBinary([]byte{0x08, 0x01, 0x01, 0x01}); err == nil {
+		t.Errorf(`Length should refuse Weight v2 ext`)
+	}
+	// reserved unit (index 8 in lengthUnits is reserved)
+	if err := l.UnmarshalBinary([]byte{0x0c, 8, 0x00, 0x01}); err == nil {
+		t.Errorf(`Length with reserved unit code 8 should error`)
+	}
+	// unknown opcode (typeMarker = 1 → not a recognized type)
+	if err := l.UnmarshalBinary([]byte{0x02, 0x01, 0x01}); err == nil {
+		t.Errorf(`Length should refuse unknown opcode`)
+	}
+}
+
+func TestBinaryV2DecimalDecodeBranches(t *testing.T) {
+	// Decimal v2 with negative mantissa (opcode 0xC4 = Decimal loss +exp -m, exp=2, m=1) → -100 with loss
+	stream := []byte{0xC4, 0x02, 0x01}
+	var d Decimal
+	if err := d.UnmarshalBinary(stream); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	if !d.Equal(-100) {
+		t.Errorf(`-1 * 10^2 = -100, got %v`, d)
+	}
+
+	// Decimal v2 with negative exp and negative mantissa (opcode 0xFC = -exp -m), exp=1, m=2 → -0.2
+	stream = []byte{0xFC, 0x01, 0x02}
+	if err := d.UnmarshalBinary(stream); err != nil {
+		t.Fatalf(`UnmarshalBinary err=%v`, err)
+	}
+	if !d.Equal(New(-2, -1)) {
+		t.Errorf(`-2 * 10^-1 = -0.2, got %v`, d)
+	}
+
+	// truncated: opcode + just one byte (an exp uvarint), missing mantissa
+	if err := d.UnmarshalBinary([]byte{0x04, 0x01}); err == nil {
+		t.Errorf(`truncated v2 stream should error`)
+	}
+
+	// truncated: Weight extension opcode (Decimal reads the unit too) but missing exp/m
+	if err := d.UnmarshalBinary([]byte{0x08, 0x00}); err == nil {
+		t.Errorf(`truncated Weight v2 read as Decimal should error`)
+	}
+	if err := d.UnmarshalBinary([]byte{0x08, 0x00, 0x01}); err == nil {
+		t.Errorf(`truncated Weight v2 read as Decimal (missing m) should error`)
+	}
+}
+
+func TestBinaryV2InvalidOpcode(t *testing.T) {
+	// Truncated v2 stream: opcode + first uvarint, missing the second
+	// (a single-byte 0x44 stays a valid v1 NaN magic for backward compat — only multi-byte streams
+	// are interpreted as v2 extensions, see UnmarshalBinary)
+	var d Decimal
+	if err := d.UnmarshalBinary([]byte{0x44, 0x01}); err == nil {
+		t.Errorf(`truncated v2 stream (opcode + only one uvarint) should error`)
+	}
+	// Unknown opcode (typeMarker not in {2, 4, 6}; 0x06 has typeMarker = 3)
+	if err := d.UnmarshalBinary([]byte{0x06, 0x01, 0x01}); err == nil {
+		t.Errorf(`unknown extension opcode should error`)
+	}
+	// Invalid unit code in Weight extension
+	var w Weight
+	if err := w.UnmarshalBinary([]byte{0x08, 0x7f, 0x00, 0x01}); err == nil {
+		t.Errorf(`Weight with out-of-range unit code should error`)
+	}
+}
+
 func TestUnmarshalBinaryRoundtrip(t *testing.T) {
 	cases := []Decimal{
 		Null,

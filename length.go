@@ -1,6 +1,7 @@
 package decimal
 
 import (
+	"encoding/binary"
 	"math"
 )
 
@@ -336,6 +337,112 @@ func (l *Length) UnmarshalText(text []byte) error {
 // MarshalText implements the encoding.TextMarshaler interface for XML serialization.
 func (l Length) MarshalText() (text []byte, err error) {
 	return l.BytesTo(nil), nil
+}
+
+// MarshalBinary implements the encoding.BinaryMarshaler interface.
+//
+// When the unit is m (the default unit code 0) the encoding is identical to a Decimal of the same
+// scalar value (1-10 bytes). For any other unit the v2 Length extension format is used (see
+// BINARY_FORMAT.md). Magic values (NaN, ±Inf, NearZero variants) always use the v1 magic byte and
+// lose the unit info.
+func (l Length) MarshalBinary() (data []byte, err error) {
+	v, m, e, _ := l.vmet()
+	unit := (v & lengthTBitmask) >> lengthBitT
+
+	if m == 0 || unit == 0 {
+		return marshalBinaryV1(v, m, e), nil
+	}
+
+	return marshalBinaryV2Ext(binExpLength, v, m, e, unit), nil
+}
+
+// UnmarshalBinary implements the encoding.BinaryUnmarshaler interface.
+//
+// Accepts the v1 format (assumed to be in m), the v2 Decimal extension (assumed to be in m),
+// and the v2 Length extension (with explicit unit). A v2 Weight extension is rejected with ErrFormat.
+func (l *Length) UnmarshalBinary(data []byte) error {
+	if len(data) == 0 {
+		return ErrFormat
+	}
+
+	if data[0]&1 != 0 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		u ^= 1 << (decimalBitE - 1)
+		m, n := binary.Uvarint(data[1:])
+		if n <= 0 {
+			return ErrFormat
+		}
+		u |= m
+		if u&sign != 0 && Length(u) != Length(math.MinInt64) {
+			*l = -Length(u ^ sign)
+		} else {
+			*l = Length(u)
+		}
+		return nil
+	}
+
+	if len(data) == 1 {
+		u := uint64(data[0]) << (decimalBitE - 1)
+		if u&sign != 0 && Length(u) != Length(math.MinInt64) {
+			*l = -Length(u ^ sign)
+		} else {
+			*l = Length(u)
+		}
+		return nil
+	}
+
+	typeMarker, signNeg, negE, lossSet, ok := binDecodeOpcode(data[0])
+	if !ok {
+		return ErrFormat
+	}
+
+	rest := data[1:]
+	var unit uint64
+
+	switch typeMarker {
+	case binExpDecimal:
+		unit = 0
+	case binExpLength:
+		var n int
+		unit, n = binary.Uvarint(rest)
+		if n <= 0 {
+			return ErrFormat
+		}
+		if unit >= uint64(len(lengthUnits)) || lengthUnits[unit].u == "" {
+			return ErrUnitSyntax
+		}
+		rest = rest[n:]
+	default:
+		return ErrFormat
+	}
+
+	expAbs, nE := binary.Uvarint(rest)
+	if nE <= 0 {
+		return ErrFormat
+	}
+	rest = rest[nE:]
+
+	mAbs, nM := binary.Uvarint(rest)
+	if nM <= 0 {
+		return ErrFormat
+	}
+
+	var v uint64
+	if signNeg {
+		v |= sign
+	}
+	if lossSet {
+		v |= loss
+	}
+	v |= unit << lengthBitT
+
+	e := int64(expAbs)
+	if negE {
+		e = -e
+	}
+
+	*l = vmeAsLength(v, mAbs, e)
+	return nil
 }
 
 // IsNull return
