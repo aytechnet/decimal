@@ -1,7 +1,7 @@
 # decimal
 
 [![ci](https://github.com/aytechnet/decimal/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/aytechnet/decimal/actions/workflows/go.yml)
-[![Go Doc](https://godoc.org/github.com/aytechnet/decimal?status.svg)](https://godoc.org/github.com/aytechnet/decimal) 
+[![Go Reference](https://pkg.go.dev/badge/github.com/aytechnet/decimal.svg)](https://pkg.go.dev/github.com/aytechnet/decimal)
 [![Go Coverage](https://img.shields.io/codecov/c/github/aytechnet/decimal/main?color=brightcolor)](https://codecov.io/gh/aytechnet/decimal)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aytechnet/decimal)](https://goreportcard.com/report/github.com/aytechnet/decimal)
 
