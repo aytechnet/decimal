@@ -1105,7 +1105,6 @@ func vmeRoundFloor(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 	}
 }
 
-
 // pow5[i] = 5^i. 5^27 ≈ 7.45e18 fits in uint64 (5^28 overflows).
 var pow5 = [...]uint64{
 	1, 5, 25, 125, 625,

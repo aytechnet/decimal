@@ -1,3 +1,6 @@
+// Package decimal provides a high-performance, zero-allocation fixed-point decimal type
+// (and companion Weight / Length types with unit support) packed in a single 8-byte int64.
+// See README.md for an overview and BINARY_FORMAT.md for the open wire-format specification.
 package decimal
 
 import (
@@ -1077,7 +1080,7 @@ func Min(first Decimal, rest ...Decimal) Decimal {
 	return min
 }
 
-// Min returns the largest Decimal that was passed in the arguments.
+// Max returns the largest Decimal that was passed in the arguments.
 func Max(first Decimal, rest ...Decimal) Decimal {
 	max := first
 	for _, item := range rest {
@@ -1223,6 +1226,16 @@ func (d Decimal) BytesToFixedBank(b []byte, places int32) []byte {
 	return vmetBytesTo(b, v, m, e, places, nil, true, false)
 }
 
+// StringFixedCash returns a Cash-rounded fixed-point string with 2 digits after the decimal point. See RoundCash for the interval semantics.
+//
+// Examples:
+//
+//	NewFromFloat(3.43).StringFixedCash(5)   // "3.45"
+//	NewFromFloat(3.75).StringFixedCash(50)  // "4.00"
+func (d Decimal) StringFixedCash(interval uint8) string {
+	return d.RoundCash(interval).StringFixed(2)
+}
+
 // StringFixedBank returns a banker rounded fixed-point string with places digits
 // after the decimal point.
 //
@@ -1235,16 +1248,6 @@ func (d Decimal) BytesToFixedBank(b []byte, places int32) []byte {
 //	NewFromFloat(5.45).StringFixedBank(2) // output: "5.45"
 //	NewFromFloat(5.45).StringFixedBank(3) // output: "5.450"
 //	NewFromFloat(545).StringFixedBank(-1) // output: "540"
-// StringFixedCash returns a Cash-rounded fixed-point string with 2 digits after the decimal point. See RoundCash for the interval semantics.
-//
-// Examples:
-//
-//	NewFromFloat(3.43).StringFixedCash(5)   // "3.45"
-//	NewFromFloat(3.75).StringFixedCash(50)  // "4.00"
-func (d Decimal) StringFixedCash(interval uint8) string {
-	return d.RoundCash(interval).StringFixed(2)
-}
-
 func (d Decimal) StringFixedBank(places int32) string {
 	v, m, e := d.vme()
 
@@ -1347,7 +1350,7 @@ func (d *Decimal) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// MarshalJSON implements the json.Marshaler interface.
+// MarshalBinary implements the encoding.BinaryMarshaler interface.
 func (d Decimal) MarshalBinary() (data []byte, err error) {
 	var u uint64
 	var x byte
