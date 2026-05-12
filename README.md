@@ -4,6 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/aytechnet/decimal.svg)](https://pkg.go.dev/github.com/aytechnet/decimal)
 [![Go Coverage](https://img.shields.io/codecov/c/github/aytechnet/decimal/main?color=brightcolor)](https://codecov.io/gh/aytechnet/decimal)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aytechnet/decimal)](https://goreportcard.com/report/github.com/aytechnet/decimal)
+[![Mentioned in Awesome Go](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/avelino/awesome-go)
 
 High performance, zero-allocation, low memory usage (8 bytes), low precision (17 digits), partially compatible with int64 and [shopspring/decimal](https://github.com/shopspring/decimal)
 
