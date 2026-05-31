@@ -812,8 +812,29 @@ func (d Decimal) InexactFloat64() float64 {
 }
 
 // Ln calculates natural logarithm of d. Precision argument specifies how precise the result must be (number of digits after decimal point). Negative precision is allowed.
+//
+// For precision >= 16 and a normal strictly-positive finite operand, Ln uses a
+// fixed-point binary-reduction + atanh-series path (ln_highprec.go) that fills
+// the type's full 57-bit mantissa, avoiding math.Log entirely. It is ~10× more
+// accurate at the last digit than the float64 path; getting that precision any
+// other way needs an arbitrary-precision library (~1200× slower), so the few ns
+// it costs over the float64 path is negligible. Values whose result |ln| is tiny
+// (x within ~1% of 1) fall back to the float64 path, which math.Log computes
+// accurately in that regime; any precision < 16 call also uses the float64 path.
+// NaN for d <= 0.
 func (d Decimal) Ln(precision int32) Decimal {
 	f, x := d.Float64()
+
+	// High-precision path: for a normal, strictly-positive, finite operand and
+	// precision >= 16, compute ln to the full 57-bit mantissa instead of being
+	// capped at float64. See ln_highprec.go / LN_PRECISION_PLAN.md.
+	if precision >= lnHighPrecMin && f > 0 && !math.IsInf(f, 0) {
+		if v, m, e := d.vme(); m != 0 && v&sign == 0 {
+			if r, ok := lnHighPrec(m, e, precision); ok {
+				return r
+			}
+		}
+	}
 
 	return NewFromFloat64Exact(math.Log(f), x).Round(precision)
 }
