@@ -13,7 +13,7 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - the unitialized value is Null and is safe to use without initialization, intepreted as 0 which is different from 0, usefull in omitempty flag for JSON decoding/encoding.
  - **low-memory** usage as internal representation is **int64** and value between -144115188075855871 and 144115188075855871 can safely be used as Decimal.
  - **no heap allocations** to prevent garbage collector impact.
- - **high performance**, arithmetic operations are 2x to 41x faster than [shopspring/decimal](https://github.com/shopspring/decimal) (see Benchmarks below).
+ - **high performance**, fractional arithmetic is 5× to 40× faster than [shopspring/decimal](https://github.com/shopspring/decimal), pure-integer arithmetic 18× to 35×, trigonometric functions ~200×, and `Ln` up to ~1 200× — all allocation-free (see Benchmarks below).
  - compact binary serialization from 1 to 10 bytes — **open, documented, interoperable** format (see [BINARY_FORMAT.md](BINARY_FORMAT.md); same format covers `Weight` and `Length` with explicit unit support).
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
