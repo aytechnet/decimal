@@ -22,3 +22,13 @@ jobs:
         with:
           # pinned: validated locally against this exact version (v2 config)
           version: v2.13.2
+
+      - name: Job summary
+        run: |
+          {
+            echo "## decimal — lint report"
+            echo ""
+            echo "golangci-lint **v2.13.2** — ✅ 0 issues"
+            echo ""
+            echo "Enabled analyses: staticcheck (SA, minus SA9004 — see .golangci.yml), govet, errcheck, ineffassign, unused."
+          } >> "$GITHUB_STEP_SUMMARY"

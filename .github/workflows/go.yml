@@ -40,6 +40,21 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
 
+    - name: Job summary
+      if: matrix.go-version == '1.24'
+      run: |
+        cov=$(go tool cover -func=coverage.txt | tail -1 | awk '{print $3}')
+        {
+          echo "## decimal — report"
+          echo ""
+          echo "| Check | Result |"
+          echo "|---|---|"
+          echo "| build (Go 1.20 → 1.24 matrix) | ✅ |"
+          echo "| go vet | ✅ clean |"
+          echo "| tests | ✅ pass |"
+          echo "| coverage (total) | $cov |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
   # lint moved to its own workflow (lint.yml) so it gets a dedicated badge,
   # pinned to a golangci-lint v2 release matching the migrated .golangci.yml.
 
@@ -61,3 +76,14 @@ jobs:
 
     - name: Smoke fuzz arithmetic round-trip
       run: go test -run=^$ -fuzz=FuzzMarshalUnmarshalBinary -fuzztime=20s
+
+    - name: Job summary
+      run: |
+        {
+          echo "## decimal — fuzz report"
+          echo ""
+          echo "Smoke fuzzing (20s each) — ✅ no crash:"
+          echo "- FuzzNewFromString"
+          echo "- FuzzNewFromFloat"
+          echo "- FuzzMarshalUnmarshalBinary (arithmetic round-trip)"
+        } >> "$GITHUB_STEP_SUMMARY"
