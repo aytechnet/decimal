@@ -1,19 +1,34 @@
-run:
-  timeout: 3m
-
-linters-settings:
-  staticcheck:
-    # SA9004: "only the first constant in this group has an explicit type" — intentional in core.go,
-    # where `sign` is uint64 (used in masks) while `loss` is left untyped so it can mix with both
-    # uint64 and Decimal/Weight/Length operands without an explicit conversion at every site.
-    checks:
-      - all
-      - -SA9004
-
-issues:
-  exclude-rules:
-    # benchmarks call parsers in tight loops where return values are intentionally discarded
-    - path: _test\.go
-      text: "Error return value of `(strconv\\.ParseInt|strconv\\.ParseFloat|NewFromString)` is not checked"
-      linters:
-        - errcheck
+version: "2"
+linters:
+  settings:
+    staticcheck:
+      # v1 parity: SA analyses only (v2's "all" would add ST/QF style classes,
+      # ~19 findings to triage — enable them in a dedicated cleanup pass if wanted).
+      checks:
+        - all
+        - -ST*
+        - -QF*
+        - -SA9004
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+        text: Error return value of `(strconv\.ParseInt|strconv\.ParseFloat|NewFromString)` is not checked
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
