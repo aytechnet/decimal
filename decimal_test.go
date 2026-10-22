@@ -636,24 +636,36 @@ func TestNewFromFloat32(t *testing.T) {
 }
 
 func TestNewFromFloatWithExponent(t *testing.T) {
-	if d := NewFromFloatWithExponent(0, -10); d != Zero {
-		t.Errorf(`NewFromFloatWithExponent(0) should be Zero, d = %v`, d)
+	for _, c := range []struct {
+		value float64
+		exp   int32
+		want  Decimal
+	}{
+		{0, -10, Zero},
+		{123.456, -2, New(12346, -2)},
+		{-14.999, -3, New(-14999, -3)},
+		{-14.999, -5, New(-14999, -3)},
+		{-14.999, -2, New(-15, 0)},
+		{0.025, -2, New(3, -2)},   // 0.025000000000000001387... as a float64
+		{0.015, -2, New(1, -2)},   // 0.014999999999999999444... as a float64
+		{-0.015, -2, New(-1, -2)}, // symmetric
+		{2.5, 0, New(3, 0)},       // exact tie: away from zero
+		{-2.5, 0, New(-3, 0)},
+		{0.125, -2, New(13, -2)},
+		{1234.5, 1, New(123, 1)},
+		{-1234.5, 2, New(-12, 2)},
+		{1e20, -2, New(1, 20)},
+		{1.5e-300, -2, Zero},
+	} {
+		if d := NewFromFloatWithExponent(c.value, c.exp); d != c.want {
+			t.Errorf("NewFromFloatWithExponent(%v, %d) = %v, want %v", c.value, c.exp, d, c.want)
+		}
 	}
-	if d := NewFromFloatWithExponent(-14.999, 3); d != New(-14999, -3) {
-		t.Errorf(`NewFromFloatWithExponent(-14.999, 3) should be -14.999, d = %v`, d)
+	if d := NewFromFloatWithExponent(math.NaN(), -2); !d.IsNaN() {
+		t.Errorf("NewFromFloatWithExponent(NaN, -2) should be NaN, d = %v", d)
 	}
-	if d := NewFromFloatWithExponent(-14.999, 5); d != New(-14999, -3) {
-		t.Errorf(`NewFromFloatWithExponent(-14.999, 5) should be -14.999, d = %v`, d)
-	}
-	if d := NewFromFloatWithExponent(-14.999, 2); d != -15 {
-		t.Errorf(`NewFromFloatWithExponent(-14.999, 2) should be -15, d = %v`, d)
-	}
-	if d := NewFromFloatWithExponent(0.025, 2); d != New(3, -2) {
-		t.Errorf(`NewFromFloatWithExponent(0.025, 2) should be 0.03, d = %v`, d)
-	}
-	// half away from zero, symmetric with 0.025 above (NewFromFloat keeps the shortest decimal, -0.015)
-	if d := NewFromFloatWithExponent(-0.015, 2); d != New(-2, -2) {
-		t.Errorf(`NewFromFloatWithExponent(-0.015, 2) should be -0.02, d = %v`, d)
+	if d := NewFromFloatWithExponent(math.Inf(-1), -2); d != NegativeInfinity {
+		t.Errorf("NewFromFloatWithExponent(-Inf, -2) should be -Inf, d = %v", d)
 	}
 }
 
@@ -2326,9 +2338,15 @@ func TestTruncate(t *testing.T) {
 	if d := New(12345, -2).Truncate(0); d != 123 {
 		t.Errorf(`123.45.Truncate(0) should be 123 and not %v`, d)
 	}
-	// negative precision returns d unchanged
-	if d := New(12345, -2).Truncate(-1); d != New(12345, -2) {
-		t.Errorf(`123.45.Truncate(-1) should be 123.45 and not %v`, d)
+	// negative precision truncates the integer part, like shopspring v1.5+
+	if d := New(12345, -2).Truncate(-1); d != 120 {
+		t.Errorf(`123.45.Truncate(-1) should be 120 and not %v`, d)
+	}
+	if d := New(5432, 0).Truncate(-2); d != 5400 {
+		t.Errorf(`5432.Truncate(-2) should be 5400 and not %v`, d)
+	}
+	if d := New(-5432, 0).Truncate(-2); d != -5400 {
+		t.Errorf(`-5432.Truncate(-2) should be -5400 and not %v`, d)
 	}
 }
 

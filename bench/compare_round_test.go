@@ -2,6 +2,9 @@ package bench
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
+	"strings"
 	"testing"
 
 	ay "github.com/aytechnet/decimal"
@@ -27,7 +30,6 @@ func TestRoundParity(t *testing.T) {
 		{"RoundDown", func(d ay.Decimal, p int32) string { return d.RoundDown(p).String() }, func(d ss.Decimal, p int32) string { return d.RoundDown(p).String() }, true},
 		{"RoundCeil", func(d ay.Decimal, p int32) string { return d.RoundCeil(p).String() }, func(d ss.Decimal, p int32) string { return d.RoundCeil(p).String() }, true},
 		{"RoundFloor", func(d ay.Decimal, p int32) string { return d.RoundFloor(p).String() }, func(d ss.Decimal, p int32) string { return d.RoundFloor(p).String() }, true},
-		// shopspring v1.5+ also truncates the integer part for a negative precision; aytechnet does not (see places below)
 		{"Truncate", func(d ay.Decimal, p int32) string { return d.Truncate(p).String() }, func(d ss.Decimal, p int32) string { return d.Truncate(p).String() }, true},
 		{"DivRound3", func(d ay.Decimal, p int32) string { return d.DivRound(ay.New(3, 0), p).String() }, func(d ss.Decimal, p int32) string { return d.DivRound(ss.New(3, 0), p).String() }, true},
 		{"DivRound8", func(d ay.Decimal, p int32) string { return d.DivRound(ay.New(8, 0), p).String() }, func(d ss.Decimal, p int32) string { return d.DivRound(ss.New(8, 0), p).String() }, true},
@@ -38,8 +40,6 @@ func TestRoundParity(t *testing.T) {
 		switch o.name {
 		case "RoundCash":
 			places = []int32{5, 10, 25, 50, 100}
-		case "Truncate":
-			places = []int32{0, 1, 2, 3}
 		}
 		bad, ex := 0, ""
 		for n := int64(-30000); n <= 30000; n += 1 {
@@ -62,5 +62,48 @@ func TestRoundParity(t *testing.T) {
 		if bad > 0 {
 			t.Errorf("%s: %d mismatches with shopspring:%s", o.name, bad, ex)
 		}
+	}
+}
+
+// TestNewFromFloatWithExponentParity checks NewFromFloatWithExponent against shopspring on random
+// float64 values: same exponent convention (exp -2 keeps 2 places) and same rounding of the exact
+// binary value, half away from zero. Beyond the ~17 significant digits of the 57-bit mantissa the
+// result keeps ~17 significant digits and must be within one unit of its last digit.
+func TestNewFromFloatWithExponentParity(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	bad, ex := 0, ""
+	for i := 0; i < 200000; i++ {
+		var f float64
+		switch i % 4 {
+		case 0: // money-like values with a few decimals, often near a tie
+			f = float64(rng.Int63n(2000000)-1000000) / 1000
+		case 1:
+			f = (rng.Float64() - 0.5) * math.Pow(10, float64(rng.Intn(16)-6))
+		case 2: // exact binary ties
+			f = float64(rng.Int63n(20000)-10000) / 8
+		default:
+			f = float64(rng.Int63n(1<<53)-(1<<52)) * math.Pow(2, float64(rng.Intn(60)-70))
+		}
+		for exp := int32(-12); exp <= 3; exp++ {
+			da := ay.NewFromFloatWithExponent(f, exp)
+			ga := da.String()
+			gs := ss.NewFromFloatWithExponent(f, exp)
+			x, err := ss.NewFromString(strings.TrimPrefix(ga, "~"))
+			ok := err == nil && x.Equal(gs)
+			if !ok && err == nil && (!da.IsExact() || gs.NumDigits() > 17) {
+				// more digits than the 57-bit mantissa holds: aytechnet keeps ~17 significant
+				// digits, so allow one unit of its last digit
+				ok = x.Sub(gs).Abs().LessThanOrEqual(ss.New(1, da.Exponent()))
+			}
+			if !ok {
+				bad++
+				if len(ex) < 400 {
+					ex += fmt.Sprintf(" %v@%d: aytechnet %s, shopspring %s;", f, exp, ga, gs)
+				}
+			}
+		}
+	}
+	if bad > 0 {
+		t.Errorf("NewFromFloatWithExponent: %d mismatches with shopspring:%s", bad, ex)
 	}
 }

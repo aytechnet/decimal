@@ -11,6 +11,8 @@ import (
 	"math"
 	"math/bits"
 	"regexp"
+	"strconv"
+	"strings"
 )
 
 // Decimal represents a fixed-point decimal hold as a 64 bits integer
@@ -486,19 +488,16 @@ func (d Decimal) RoundUp(places int32) Decimal {
 	return d.RoundCeil(places)
 }
 
-// Truncate truncates digits from the decimal without rounding (towards zero).
-// precision is the number of digits to keep after the decimal point and must be >= 0;
-// for precision < 0 the decimal is returned unchanged.
+// Truncate truncates digits from the decimal without rounding (towards zero), keeping precision digits
+// after the decimal point. A negative precision truncates the integer part, like shopspring/decimal v1.5+.
 //
 // Example:
 //
 //	d, _ := NewFromString("123.456")
-//	d.Truncate(2).String() // "123.45"
+//	d.Truncate(2).String()  // "123.45"
+//	New(5432, 0).Truncate(-2).String()  // "5400"
+//	New(-5432, 0).Truncate(-2).String() // "-5400"
 func (d Decimal) Truncate(precision int32) Decimal {
-	if precision < 0 {
-		return d
-	}
-
 	return d.RoundDown(precision)
 }
 
@@ -1064,9 +1063,69 @@ func NewFromFloat32(value float32) Decimal {
 	}
 }
 
-// NewFromFloatWithExponent converts a float64 to Decimal, with an arbitrary number of fractional digits.
+// NewFromFloatWithExponent converts a float64 to Decimal with -exp fractional digits, like
+// shopspring/decimal: exp is an exponent, so -2 keeps 2 decimal places and 1 rounds to the tens.
+// The exact binary value of the float is rounded half away from zero, so 0.015, which is
+// 0.01499999999999999944... as a float64, gives 0.01 at exp -2 (NewFromFloat(0.015).Round(2) gives 0.02).
+// Unlike shopspring it does not panic on NaN or ±Inf, it returns them.
+//
+// Example:
+//
+//	NewFromFloatWithExponent(123.456, -2).String() // output: "123.46"
 func NewFromFloatWithExponent(value float64, exp int32) Decimal {
-	return NewFromFloat(value).Round(exp)
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return NewFromFloat(value)
+	}
+	if value == 0 {
+		return Zero
+	}
+
+	places := -int64(exp)
+	b := math.Float64bits(value)
+	mant := b & (1<<52 - 1)
+	e2 := int64((b >> 52) & 0x7ff)
+	if e2 == 0 {
+		e2++ // subnormal
+	} else {
+		mant |= 1 << 52
+	}
+	e2 -= 1023 + 52 // |value| = mant * 2^e2
+	t := int64(bits.TrailingZeros64(mant))
+
+	if places >= 0 {
+		// strconv rounds the exact binary value correctly, but an exact tie to even: a tie is
+		// |value| * 10^places * 2 being an odd integer, i.e. exactly places+1 binary fraction bits
+		if -e2-t == places+1 {
+			// the exact value ends with a 5 at places+1: drop it (truncation toward zero, at most
+			// one digit more than the result) and add one unit away from zero
+			s := strings.TrimSuffix(strconv.FormatFloat(value, 'f', int(places+1), 64), "5")
+			d, _ := NewFromString(strings.TrimSuffix(s, "."))
+			if value < 0 {
+				return d.Sub(New(1, exp))
+			}
+			return d.Add(New(1, exp))
+		}
+		d, _ := NewFromString(strconv.FormatFloat(value, 'f', int(places), 64))
+		return d
+	}
+
+	// rounding to tens and beyond: split |value| = I + f with I an integer and f in [0, 1) (both exact)
+	a := math.Abs(value)
+	if a >= 1<<63 || -places >= int64(len(tenPow)) {
+		// at least 19 integer digits, beyond the ~17 of the mantissa: no exact tie to care about
+		d, _ := NewFromString(strconv.FormatFloat(value, 'f', 0, 64))
+		return d.Round(int32(places))
+	}
+	i := uint64(a)
+	p := tenPow[-places]
+	q, r := i/p, i%p
+	if r >= p/2 { // r + f >= p/2 as p/2 is an integer and f < 1: half away from zero
+		q++
+	}
+	if value < 0 {
+		return New(-int64(q), -int32(places))
+	}
+	return New(int64(q), -int32(places))
 }
 
 // Sum returns the combined total of the provided first and rest Decimals
