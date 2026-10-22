@@ -1,5 +1,5 @@
 // Transcendental / trigonometric comparison: Ln, Sin, Cos, Tan, and the inverse
-// Atan (the only inverse trig both packages expose), and Sqrt (shopspring v1.6.0+).
+// Atan (the only inverse trig both packages expose), and Sqrt and Root (shopspring v1.6.0+).
 // Run from this directory:
 //
 //	go test -bench='Ln|Sin|Cos|Tan|Atan|Sqrt' -benchmem -count=6
@@ -37,6 +37,8 @@ func TestMathAccuracy(t *testing.T) {
 		{"Tan(0.5)", ay.New(5, -1).Tan().InexactFloat64(), math.Tan(0.5)},
 		{"Atan(0.5)", ay.New(5, -1).Atan().InexactFloat64(), math.Atan(0.5)},
 		{"Sqrt(2)", ay.New(2, 0).Sqrt().InexactFloat64(), math.Sqrt(2)},
+		{"Root(2, 3)", ay.New(2, 0).Root(3).InexactFloat64(), math.Cbrt(2)},
+		{"Root(10, 5)", ay.New(10, 0).Root(5).InexactFloat64(), math.Pow(10, 0.2)},
 	}
 	for _, c := range cases {
 		if diff := math.Abs(c.got - c.want); diff > tol {
@@ -191,6 +193,31 @@ func BenchmarkSqrtShopspring(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		r, _ = d.Sqrt()
+	}
+	sinkSS = r
+}
+
+// =============================================================================
+// Root(2, 3) — aytechnet returns Decimal from float64 (math.Cbrt), shopspring (v1.6.0+) returns
+// (Decimal, error) with DivisionPrecision (16) places computed exactly with big.Int
+// =============================================================================
+
+func BenchmarkRoot3Aytechnet(b *testing.B) {
+	d := ay.New(2, 0) // 2
+	var r ay.Decimal
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r = d.Root(3)
+	}
+	sinkAy = r
+}
+
+func BenchmarkRoot3Shopspring(b *testing.B) {
+	d := ss.New(2, 0) // 2
+	var r ss.Decimal
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r, _ = d.Root(3)
 	}
 	sinkSS = r
 }

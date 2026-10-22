@@ -863,6 +863,79 @@ func (d Decimal) Sqrt() Decimal {
 	return NewFromFloat64Exact(math.Sqrt(f), x)
 }
 
+// SqrtRound returns the square root of d rounded half away from zero to places digits after the decimal
+// point, like Round. It is computed from float64, so beyond ~16 significant digits the digits are those
+// of Sqrt.
+//
+// Intentionally NOT compatible with shopspring/decimal v1.6+, whose SqrtRound returns (Decimal, error):
+// a negative input yields NaN instead of an error (see README).
+func (d Decimal) SqrtRound(places int32) Decimal {
+	return d.Sqrt().Round(places)
+}
+
+// Root returns the n-th root of d. Odd roots of negative numbers are negative.
+//
+// Special cases are:
+//
+//	Root(n < 1) = NaN
+//	Root(x < 0) = NaN for an even n
+//	Root(±0) = ±0
+//	Root(+Inf) = +Inf, Root(-Inf) = -Inf for an odd n
+//	Root(NaN) = NaN
+//
+// Intentionally NOT compatible with shopspring/decimal v1.6+, whose Root returns (Decimal, error): an
+// out-of-domain input yields NaN instead of an error, and the result has the precision of a float64
+// (~16 significant digits) rather than DivisionPrecision places (see README).
+func (d Decimal) Root(n int64) Decimal {
+	if n < 1 {
+		return NaN
+	}
+	if n == 1 {
+		return d
+	}
+	if n == 2 {
+		return d.Sqrt()
+	}
+
+	f, x := d.Float64()
+	neg := f < 0
+	if neg {
+		if n%2 == 0 {
+			return NaN
+		}
+		f = -f
+	}
+
+	var r float64
+	switch {
+	case n == 3:
+		r = math.Cbrt(f)
+	case f == 0 || math.IsInf(f, 0) || math.IsNaN(f):
+		r = f
+	default:
+		r = math.Pow(f, 1/float64(n))
+		// one Newton step corrects the error of 1/n not being exact in binary
+		r -= (math.Pow(r, float64(n)) - f) / (float64(n) * math.Pow(r, float64(n-1)))
+	}
+	// an exact integer root (Root(32, 5) = 2) must not come out as 1.9999999999999998
+	if i := math.Round(r); i != r && math.Pow(i, float64(n)) == f {
+		r = i
+	}
+
+	if neg {
+		r = -r
+	}
+	return NewFromFloat64Exact(r, x)
+}
+
+// RootRound returns the n-th root of d rounded half away from zero to places digits after the decimal
+// point, like Round. Same special cases and float64 precision as Root.
+//
+// Intentionally NOT compatible with shopspring/decimal v1.6+, whose RootRound returns (Decimal, error).
+func (d Decimal) RootRound(n int64, places int32) Decimal {
+	return d.Root(n).Round(places)
+}
+
 // Pow returns d1**d2, the base-d1 exponential of d2.
 func (d1 Decimal) Pow(d2 Decimal) Decimal {
 	f1, x1 := d1.Float64()

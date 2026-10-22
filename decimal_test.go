@@ -3493,6 +3493,47 @@ func BenchmarkPublicDecimalPow600(b *testing.B) {
 	}
 }
 
+func TestRoot(t *testing.T) {
+	for _, c := range []struct {
+		d    Decimal
+		n    int64
+		want Decimal
+	}{
+		{New(8, 0), 3, New(2, 0)},
+		{New(-8, 0), 3, New(-2, 0)},
+		{New(32, 0), 5, New(2, 0)},
+		{New(81, 0), 4, New(3, 0)},
+		{New(1, 0), 7, New(1, 0)},
+		{New(16, 0), 2, New(4, 0)},
+		{New(5, 0), 1, New(5, 0)},
+		{New(125, -3), 3, New(5, -1)},
+	} {
+		if got := c.d.Root(c.n); !got.Equal(c.want) {
+			t.Errorf("%v.Root(%d) = %v, want %v", c.d, c.n, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		d Decimal
+		n int64
+	}{{New(-16, 0), 4}, {New(2, 0), 0}, {New(2, 0), -3}, {New(-2, 0), 2}} {
+		if got := c.d.Root(c.n); !got.IsNaN() {
+			t.Errorf("%v.Root(%d) = %v, want NaN", c.d, c.n, got)
+		}
+	}
+	if got := New(2, 0).RootRound(3, 4); got != New(12599, -4) {
+		t.Errorf("2.RootRound(3, 4) = %v, want 1.2599", got)
+	}
+	if got := New(2, 0).RootRound(3, 10); got != New(12599210499, -10) {
+		t.Errorf("2.RootRound(3, 10) = %v, want 1.2599210499", got)
+	}
+	if got := New(2, 0).SqrtRound(4); got != New(14142, -4) {
+		t.Errorf("2.SqrtRound(4) = %v, want 1.4142", got)
+	}
+	if got := New(-2, 0).SqrtRound(4); !got.IsNaN() {
+		t.Errorf("-2.SqrtRound(4) = %v, want NaN", got)
+	}
+}
+
 func TestNewFromFloatShortest(t *testing.T) {
 	for _, c := range []struct {
 		f    float64

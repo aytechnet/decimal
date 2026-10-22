@@ -130,13 +130,18 @@ single expression. Check `IsNaN()` / `IsInfinite()` on the final value when the 
 uncertain, exactly as you would inspect a `float64` result. If you need shopspring's
 error-returning shape, wrap the call: `func ln(d Decimal) (Decimal, error) { r := d.Ln(16); if r.IsNaN() { return r, errLn }; return r, nil }`.
 
-### `Sqrt` signature is intentionally NOT compatible
+### `Sqrt`, `SqrtRound`, `Root` and `RootRound` signatures are intentionally NOT compatible
 
-shopspring v1.6.0 added `Sqrt() (Decimal, error)` (with `SqrtRound`, `Root` and `RootRound`). This
-package keeps its existing `Sqrt() Decimal`, on purpose and for the same reason as `Ln`: changing it
-would break every caller of the v1 API, and a negative input already yields `NaN` instead of an error,
-so the call composes in an expression. Code written for shopspring's `Sqrt` therefore does not compile
-against this package as is; drop the error, or wrap the call as shown for `Ln` above.
+shopspring v1.6.0 added `Sqrt() (Decimal, error)`, `SqrtRound(places int32) (Decimal, error)`,
+`Root(n int64) (Decimal, error)` and `RootRound(n int64, places int32) (Decimal, error)`. This package
+keeps its existing `Sqrt() Decimal`, on purpose and for the same reason as `Ln`: changing it would break
+every caller of the v1 API, and a negative input already yields `NaN` instead of an error, so the call
+composes in an expression. `SqrtRound(places int32) Decimal`, `Root(n int64) Decimal` and
+`RootRound(n int64, places int32) Decimal` follow the same rule: no error, `NaN` for `n < 1` or an even
+root of a negative number. They are computed from `float64` (~16 significant digits, exact integer roots
+such as `Root(32, 5) = 2` stay exact), where shopspring computes `DivisionPrecision` places exactly with
+`big.Int`. Code written for shopspring's versions therefore does not compile against this package as is;
+drop the error, or wrap the call as shown for `Ln` above.
 
 Methods around `math/big` (`NewFromBigInt`, `NewFromBigRat`, `BigInt`, `BigFloat`, `Rat`, `Coefficient`) are not supported by design — the whole point of the package is to avoid `big.Int` allocations.
 
@@ -154,7 +159,7 @@ All figures: vs [shopspring/decimal](https://github.com/shopspring/decimal) v1.6
 | Integer construction (`NewFromInt`/`Int32`) | **17×–~50×** | 0 | `Int32` near measurement floor |
 | Running sum `Σ i` (convert + add) | **~19×** | 0 | true data dependency, most defensible |
 | Transcendental / trig (`Sin`/`Cos`/`Tan`/`Atan`/`Ln`) | **~40×–~95×** | 0 | **NOT iso-precision** — see caveat below |
-| `Sqrt` | **~15×** | 0 | close to iso-precision (16 places both) |
+| `Sqrt` / `Root` | **~15× / ~31×** | 0 | close to iso-precision (16 places both) |
 
 Detailed per-operation tables follow.
 
@@ -209,6 +214,7 @@ the stdlib `math` package in `TestMathAccuracy` (all within 1e-13).
 | `Atan(0.5)` | 34 ns/op | 1469 ns/op | **~43×** | 0 | 51 (2136 B) |
 | `Ln(2.5)` (precision 16) | 57 ns/op | 2541 ns/op | **~45×** | 0 | 51 (2288 B) |
 | `Sqrt(2)` | 23 ns/op | 336 ns/op | **~15×** | 0 | 11 (248 B) |
+| `Root(2, 3)` | 51 ns/op | 1567 ns/op | **~31×** | 0 | 39 (1296 B) |
 
 These large multipliers are dominated by the precision mismatch: aytechnet's trig are
 backed by hardware `float64` (≈15–16 significant digits, the most this 17-digit type can
