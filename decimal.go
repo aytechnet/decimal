@@ -1108,14 +1108,11 @@ func newFromShortestFloat(value float64, bitSize int) Decimal {
 		return NegativeInfinity
 	}
 
+	// strconv's 'e' output (d.ddde±dd, at most 17 digits) always parses: out-of-range exponents give
+	// ±Inf or a near zero, never an error
 	var buf [32]byte
-	if v, m, e, err := vmeFromBytes(strconv.AppendFloat(buf[:0], value, 'e', -1, bitSize), nil); err == nil {
-		return vmeAsDecimal(v, m, e)
-	}
-	if bitSize == 32 {
-		return newFromFloat32Binary(float32(value))
-	}
-	return newFromFloat64Binary(value, true)
+	v, m, e, _ := vmeFromBytes(strconv.AppendFloat(buf[:0], value, 'e', -1, bitSize), nil)
+	return vmeAsDecimal(v, m, e)
 }
 
 // NewFromFloat64Exact converts the binary value of a float64 to Decimal, rounded to the 57-bit mantissa
@@ -1159,29 +1156,6 @@ func newFromFloat64Binary(value float64, exact bool) Decimal {
 // same float32, like shopspring/decimal: NewFromFloat32(54.33) is exactly 54.33.
 func NewFromFloat32(value float32) Decimal {
 	return newFromShortestFloat(float64(value), 32)
-}
-
-// newFromFloat32Binary converts the binary value of a float32.
-func newFromFloat32Binary(value float32) Decimal {
-	b := uint64(math.Float32bits(value))
-	e := int64((b >> 23) & 0xff)
-
-	switch e {
-	case 255: // infinite and NaNs
-		if (b & 0x7fffff) == 0 {
-			if (b & 0x80000000) != 0 {
-				return NegativeInfinity
-			} else {
-				return PositiveInfinity
-			}
-		} else {
-			return NaN
-		}
-	case 0: // subnormal numbers and signed zeros
-		return newFromFloat((b<<32)&sign, (b<<40) & ^sign, -126)
-	default:
-		return newFromFloat((b<<32)&sign, (b<<40)|sign, e-127)
-	}
 }
 
 // NewFromFloatWithExponent converts a float64 to Decimal with -exp fractional digits, like

@@ -656,6 +656,12 @@ func TestNewFromFloatWithExponent(t *testing.T) {
 		{-1234.5, 2, New(-12, 2)},
 		{1e20, -2, New(1, 20)},
 		{1.5e-300, -2, Zero},
+		{5e-324, -2, Zero},     // subnormal
+		{1235, 1, New(124, 1)}, // half of a ten: away from zero
+		{-1250, 2, New(-13, 2)},
+		{1e20, 1, New(1, 20)}, // beyond 2^63: rounded through the decimal string
+		{-1e20, 2, New(-1, 20)},
+		{1e25, 2, New(100000000000000009, 8)}, // 10000000000000000905969664 to the hundreds, 18 digits kept
 	} {
 		if d := NewFromFloatWithExponent(c.value, c.exp); d != c.want {
 			t.Errorf("NewFromFloatWithExponent(%v, %d) = %v, want %v", c.value, c.exp, d, c.want)
@@ -3507,8 +3513,12 @@ func TestRoot(t *testing.T) {
 		{New(16, 0), 2, New(4, 0)},
 		{New(5, 0), 1, New(5, 0)},
 		{New(125, -3), 3, New(5, -1)},
+		{New(6561, 0), 8, New(3, 0)}, // math.Pow and the Newton step give 2.9999999999999996: snapped to 3
+		{New(0, 0), 4, Zero},
+		{PositiveInfinity, 5, PositiveInfinity},
+		{NegativeInfinity, 5, NegativeInfinity},
 	} {
-		if got := c.d.Root(c.n); !got.Equal(c.want) {
+		if got := c.d.Root(c.n); got != c.want && !got.Equal(c.want) { // == for ±Inf, Equal for the loss bit
 			t.Errorf("%v.Root(%d) = %v, want %v", c.d, c.n, got, c.want)
 		}
 	}
@@ -3555,5 +3565,50 @@ func TestNewFromFloatShortest(t *testing.T) {
 	// the binary conversion is correct to the 17th digit (was wrong from the 16th before v1.1.0)
 	if d := NewFromFloat64Exact(-178464.49, true); d.String() != "~-178464.48999999999" {
 		t.Errorf("NewFromFloat64Exact(-178464.49) = %v, want ~-178464.48999999999", d)
+	}
+}
+
+// TestNewFromFloat64ExactEdges covers the binary conversion that the math functions use: special
+// values, subnormals, out-of-range magnitudes and digits beyond the float64 precision.
+func TestNewFromFloat64ExactEdges(t *testing.T) {
+	for _, c := range []struct {
+		f    float64
+		want string
+	}{
+		{0, "0"},
+		{math.Copysign(0, -1), "-~0"},
+		{math.Inf(1), "+Inf"},
+		{math.Inf(-1), "-Inf"},
+		{math.NaN(), "NaN"},
+		{5e-324, "+~0"},  // subnormal
+		{-5e-324, "-~0"}, // subnormal
+		{2.2250738585072014e-308, "+~0"},
+		{1e300, "+Inf"}, // beyond the Decimal range
+		{-1e300, "-Inf"},
+		{math.MaxFloat64, "+Inf"}, // full 53-bit mantissa: m2 reaches 10^19 in the scaling loop
+		{-math.MaxFloat64, "-Inf"},
+		{1e30, "~1000000000000000020000000000000"}, // 1000000000000000019884624838656 rounded to the mantissa
+		{1 + math.Pow(2, -52), "~1.0000000000000002"},
+	} {
+		if got := NewFromFloat64Exact(c.f, true).String(); got != c.want {
+			t.Errorf("NewFromFloat64Exact(%v) = %s, want %s", c.f, got, c.want)
+		}
+	}
+	if got := NewFromFloat64Exact(0.5, false).String(); got != "~0.5" {
+		t.Errorf("NewFromFloat64Exact(0.5, false) = %s, want ~0.5", got)
+	}
+	for _, c := range []struct {
+		d    Decimal
+		want string
+	}{
+		{NewFromFloat(math.NaN()), "NaN"},
+		{NewFromFloat(math.Inf(-1)), "-Inf"},
+		{NewFromFloat(math.Copysign(0, -1)), "-~0"},
+		{NewFromFloat(0), "0"},
+		{NewFromFloat32(float32(math.Inf(1))), "+Inf"},
+	} {
+		if got := c.d.String(); got != c.want {
+			t.Errorf("got %s, want %s", got, c.want)
+		}
 	}
 }

@@ -50,6 +50,13 @@ func TestFormat(t *testing.T) {
 		{"%#v", Zero, "decimal.Zero"},
 		{"%#v", NaN, "decimal.NaN"},
 		{"%#v", NegativeInfinity, "decimal.NegativeInfinity"},
+		{"%#v", PositiveInfinity, "decimal.PositiveInfinity"},
+		{"%#v", NearZero, "decimal.NearZero"},
+		{"%#v", NearPositiveZero, "decimal.NearPositiveZero"},
+		{"%#v", NearNegativeZero, "decimal.NearNegativeZero"},
+		{"%.3s", New(314159, -5), "3.1"},
+		{"%8.3v|", New(314159, -5), "     3.1|"},
+		{"%f", Null, "0"},
 	}
 	for _, c := range cases {
 		if got := fmt.Sprintf(c.format, c.d); got != c.want {

@@ -1152,10 +1152,6 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 		}
 	}
 
-	if fixFloatMantissa(&m2) {
-		v |= loss
-	}
-
 	// left-align the mantissa so that each multiplication by 10^19 below keeps 64 significant bits in
 	// its high word (a 53-bit mantissa kept only ~52 bits, ~15.7 digits, so the 17th digit was wrong)
 	if e2 < 0 {
@@ -1213,19 +1209,6 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 	}
 
 	return vmeAsDecimal(v, m, e)
-}
-
-func fixFloatMantissa(m *uint64) bool {
-	// when the low 32 bits look like float-rounding noise (bits 2-31 zero, bits 0-1 set)
-	// AND the high 32 bits hold real value, zero out the noise.
-	// Bail out for tiny mantissas (m == 1 from a power of two etc.): zeroing would wipe the value.
-	if *m>>32 != 0 && *m&0xfffffffc == 0 && *m&0x3 != 0 {
-		*m &= 0xffffffff00000000
-
-		return true
-	}
-
-	return false
 }
 
 // binEncodeMagicByte builds a v1-format magic header byte from the (sign, loss, exponent) tuple.
