@@ -963,8 +963,10 @@ func vmeRound(v, m uint64, e int64, places int32) (uint64, uint64, int64) {
 				} else {
 					q, r := bits.Div64(0, m, p)
 
+					// round half away from zero, like shopspring/decimal: the mantissa is unsigned so a
+					// negative value rounds symmetrically (-2.5 -> -3, as 2.5 -> 3)
 					m = q
-					if (r<<1) > p || (r<<1) == p && v&sign == 0 {
+					if (r << 1) >= p {
 						m++
 					}
 

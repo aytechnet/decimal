@@ -100,6 +100,8 @@ fmt.Println(decimal.NewLengthFromString("1au")) // 149597870700m (UAI 2012)
 
 The public API mirrors [shopspring/decimal](https://github.com/shopspring/decimal). Methods added for compatibility include `DivRound`, `PowInt32`, `Shift`, `Truncate`, `RoundUp`, `RoundDown`, `RoundCash`, `StringFixedCash`, `NumDigits`, `Copy`, and `NewFromFormattedString`. JSON output is **unquoted** by default (raw number) — incompatible with shopspring's quoted-string default; route values through `MarshalText` / `UnmarshalText` if you need cross-package interop.
 
+**Rounding** matches shopspring on every entry point (`Round`, `StringFixed`, `DivRound`, `RoundCash`, `RoundBank`, `RoundUp`/`Down`/`Ceil`/`Floor`, `Truncate`), checked value by value against shopspring v1.4.0 and v1.6.0 by `bench/compare_round_test.go`: a half rounds away from zero, symmetrically, so `-2.5` rounds to `-3` and a credit note rounds like its invoice. Up to v1.0.2 a negative half rounded toward +∞ (`-2.5` → `-2`). One difference remains: shopspring v1.5+ `Truncate` with a negative precision truncates the integer part, here it returns the value unchanged.
+
 ### `Ln` signature is intentionally NOT compatible
 
 shopspring returns `Ln(precision int32) (Decimal, error)`; this package returns

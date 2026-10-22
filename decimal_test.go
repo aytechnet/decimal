@@ -651,8 +651,9 @@ func TestNewFromFloatWithExponent(t *testing.T) {
 	if d := NewFromFloatWithExponent(0.025, 2); d != New(3, -2) {
 		t.Errorf(`NewFromFloatWithExponent(0.025, 2) should be 0.03, d = %v`, d)
 	}
-	if d := NewFromFloatWithExponent(-0.015, 2); d != New(-1, -2) {
-		t.Errorf(`NewFromFloat(0.015, 2) should be -0.01, d = %v`, d)
+	// half away from zero, symmetric with 0.025 above (NewFromFloat keeps the shortest decimal, -0.015)
+	if d := NewFromFloatWithExponent(-0.015, 2); d != New(-2, -2) {
+		t.Errorf(`NewFromFloatWithExponent(-0.015, 2) should be -0.02, d = %v`, d)
 	}
 }
 
@@ -803,8 +804,43 @@ func TestIsEqual(t *testing.T) {
 	}
 }
 
+// TestRoundHalfAwayFromZero checks that Round, StringFixed, DivRound and RoundCash round a half away
+// from zero for negative values too, like shopspring/decimal: a credit note rounds like its invoice.
+func TestRoundHalfAwayFromZero(t *testing.T) {
+	for _, c := range []struct {
+		d      Decimal
+		places int32
+		want   Decimal
+	}{
+		{New(5, -1), 0, New(1, 0)},
+		{New(-5, -1), 0, New(-1, 0)},
+		{New(25, -1), 0, New(3, 0)},
+		{New(-25, -1), 0, New(-3, 0)},
+		{New(-5, -3), 2, New(-1, -2)},
+		{New(-1005, -3), 2, New(-101, -2)},
+		{New(-125, -2), 1, New(-13, -1)},
+		{New(-545, 0), -1, New(-550, 0)},
+	} {
+		if got := c.d.Round(c.places); got != c.want {
+			t.Errorf("%v.Round(%d) = %v, want %v", c.d, c.places, got, c.want)
+		}
+		if got := c.d.Neg().Round(c.places); got != c.want.Neg() {
+			t.Errorf("%v.Round(%d) = %v, want %v (symmetry)", c.d.Neg(), c.places, got, c.want.Neg())
+		}
+	}
+	if s := New(-5, -3).StringFixed(2); s != "-0.01" {
+		t.Errorf(`New(-5, -3).StringFixed(2) should be "-0.01", but is %q`, s)
+	}
+	if d := New(-3, 0).DivRound(New(8, 0), 2); d != New(-38, -2) {
+		t.Errorf(`-3 DivRound 8 at 2 places should be -0.38, but is %v`, d)
+	}
+	if d := New(-295, -2).RoundCash(10); d != New(-3, 0) {
+		t.Errorf(`New(-295, -2).RoundCash(10) should be -3, but is %v`, d)
+	}
+}
+
 func TestRoundZeros(t *testing.T) {
-	zeros := [...]string{"0", "~0", "-~0", "+~0", "0.4999999999", "~0.49", "0.3567433445234", "1e-10", "-0.333", "-0.5", "~-0.5"}
+	zeros := [...]string{"0", "~0", "-~0", "+~0", "0.4999999999", "~0.49", "0.3567433445234", "1e-10", "-0.333", "-0.4999999999", "~-0.49"}
 	for _, s := range zeros {
 		d := RequireFromString(s)
 

@@ -409,6 +409,7 @@ func (d1 Decimal) LessThanOrEqual(d2 Decimal) bool {
 }
 
 // Round rounds the decimal to places decimal places. If places < 0, it will round the integer part to the nearest 10^(-places).
+// A half rounds away from zero, like shopspring/decimal: 2.5 -> 3 and -2.5 -> -3.
 func (d Decimal) Round(places int32) Decimal {
 	v, m, e := d.vme()
 
