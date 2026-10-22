@@ -504,7 +504,8 @@ func vmetBytesTo(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str
 			m = r
 		}
 
-		for e += int64(i); e >= int64(places); e-- {
+		// trailing zeros of the integer part: e0 of them whatever places is (places only pads the fraction below)
+		for e += int64(i); e >= 0; e-- {
 			b = append(b, '0')
 		}
 		if e0 >= 0 && places > 0 && e+int64(places) >= 0 {

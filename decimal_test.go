@@ -1756,6 +1756,29 @@ func TestStringFixed(t *testing.T) {
 	if s := New(545, 0).StringFixedBank(-1); s != "540" {
 		t.Errorf(`New(545, 0).StringFixedBank(-1) should be "540", but is %v`, s)
 	}
+
+	// beyond 2^57 the mantissa is scaled down (positive exponent): the integer part must keep all its
+	// trailing zeros whatever the number of places
+	for _, c := range []struct {
+		d      Decimal
+		places int32
+		want   string
+	}{
+		{New(1, 18), 2, "1000000000000000000.00"},
+		{New(1, 18), 0, "1000000000000000000"},
+		{New(12345, 16), 3, "123450000000000000000.000"},
+		{New(-1, 30), 1, "-1000000000000000000000000000000.0"},
+	} {
+		if s := c.d.StringFixed(c.places); s != c.want {
+			t.Errorf(`%v.StringFixed(%d) should be %q, but is %q`, c.d, c.places, c.want, s)
+		}
+	}
+	if s := string(New(1, 18).BytesToFixedBank(nil, 2)); s != "1000000000000000000.00" {
+		t.Errorf(`New(1, 18).BytesToFixedBank(2) should be "1000000000000000000.00", but is %q`, s)
+	}
+	if s := string(New(545, 0).BytesToFixedBank(nil, -1)); s != "540" {
+		t.Errorf(`New(545, 0).BytesToFixedBank(-1) should be "540", but is %q`, s)
+	}
 }
 func TestTranscendantalFunctions(t *testing.T) {
 	sqrt2 := New(2, 0).Sqrt()
