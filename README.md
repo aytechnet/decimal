@@ -13,7 +13,7 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - the unitialized value is Null and is safe to use without initialization, intepreted as 0 which is different from 0, usefull in omitempty flag for JSON decoding/encoding.
  - **low-memory** usage as internal representation is **int64** and value between -144115188075855871 and 144115188075855871 can safely be used as Decimal.
  - **no heap allocations** to prevent garbage collector impact.
- - **high performance**, fractional arithmetic is 5× to 40× faster than [shopspring/decimal](https://github.com/shopspring/decimal), pure-integer arithmetic 18× to 35×, trigonometric functions ~200×, and `Ln` up to ~1 200× — all allocation-free (see Benchmarks below).
+ - **high performance**, fractional arithmetic is 4× to 19× faster than [shopspring/decimal](https://github.com/shopspring/decimal) v1.6, pure-integer arithmetic 11× to 26×, trigonometric functions ~40× to ~95×, and `Ln` ~45× — all allocation-free, where shopspring allocates on every operation (see Benchmarks below).
  - compact binary serialization from 1 to 10 bytes — **open, documented, interoperable** format (see [BINARY_FORMAT.md](BINARY_FORMAT.md); same format covers `Weight` and `Length` with explicit unit support).
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
@@ -128,32 +128,32 @@ Methods around `math/big` (`NewFromBigInt`, `NewFromBigRat`, `BigInt`, `BigFloat
 
 ## Benchmarks
 
-All figures: vs [shopspring/decimal](https://github.com/shopspring/decimal) v1.4.0, Ryzen 5 8540U, Go 1.26, `-count=6 -benchtime=100ms` averaged. aytechnet is **allocation-free on every operation below**.
+All figures: vs [shopspring/decimal](https://github.com/shopspring/decimal) v1.6.0, Ryzen 5 8540U, Go 1.26, `-count=6 -benchtime=100ms` averaged. aytechnet is **allocation-free on every operation below**. shopspring v1.5/v1.6 roughly halved its own costs (fewer `big.Int` allocations, faster `Ln`, `NewFromFloat` and trig), so the gaps are narrower than with v1.4.0; aytechnet's own timings are unchanged.
 
 ### Synthesis (speedup ranges by category)
 
 | Category | Speedup range | aytechnet allocs | Notes |
 |---|---|---|---:|
-| Fractional arithmetic (`Add`/`Mul`/`Div`/`Pow`) | **5×–40×** | 0 | `Div` 38×, `Mul` 5× |
-| Conversion (`NewFromString`/`Float`/`String`) | **2×–21×** | 0–1 | string paths ~2× |
-| Pure-integer arithmetic | **18×–35×** | 0 | shopspring allocates `big.Int` |
-| Integer construction (`NewFromInt`/`Int32`) | **23×–~108×** | 0 | `Int32` near measurement floor |
-| Running sum `Σ i` (convert + add) | **~20×** | 0 | true data dependency, most defensible |
-| Transcendental / trig (`Sin`/`Cos`/`Tan`/`Atan`/`Ln`) | **~200×–~1300×** | 0 | **NOT iso-precision** — see caveat below |
+| Fractional arithmetic (`Add`/`Mul`/`Div`/`Pow`) | **4×–19×** | 0 | `Div` 19×, `Mul` 4× |
+| Conversion (`NewFromString`/`Float`/`String`) | **2×–3.5×** | 0–1 | string paths ~2× |
+| Pure-integer arithmetic | **11×–26×** | 0 | shopspring allocates `big.Int` |
+| Integer construction (`NewFromInt`/`Int32`) | **17×–~50×** | 0 | `Int32` near measurement floor |
+| Running sum `Σ i` (convert + add) | **~19×** | 0 | true data dependency, most defensible |
+| Transcendental / trig (`Sin`/`Cos`/`Tan`/`Atan`/`Ln`) | **~40×–~95×** | 0 | **NOT iso-precision** — see caveat below |
 
 Detailed per-operation tables follow.
 
-Comparison against [shopspring/decimal](https://github.com/shopspring/decimal) v1.4.0 on a Ryzen 5 8540U (Go 1.26, 6 runs averaged):
+Comparison against [shopspring/decimal](https://github.com/shopspring/decimal) v1.6.0 on a Ryzen 5 8540U (Go 1.26, 6 runs averaged):
 
 | Operation | aytechnet | shopspring | Speedup | aytechnet allocs | shopspring allocs |
 |---|---:|---:|---:|---:|---:|
-| `Add` | 9.1 ns/op | 212 ns/op | **23×** | 0 | 8 (272 B) |
-| `Mul` | 10.2 ns/op | 53 ns/op | **5×** | 0 | 2 (80 B) |
-| `Div` | 8.1 ns/op | 332 ns/op | **41×** | 0 | 12 (328 B) |
-| `Pow(1.1, 60)` | 38 ns/op | 702 ns/op | **18×** | 0 | 26 (912 B) |
-| `NewFromString` | 37 ns/op | 92 ns/op | **2×** | 0 | 2 (40 B) |
-| `NewFromFloat` | 16 ns/op | 318 ns/op | **20×** | 0 | 2 (40 B) |
-| `String` | 59 ns/op | 126 ns/op | **2×** | 1 (24 B) | 4 (56 B) |
+| `Add` | 9.4 ns/op | 57 ns/op | **6×** | 0 | 2 (80 B) |
+| `Mul` | 10.2 ns/op | 44 ns/op | **4×** | 0 | 2 (80 B) |
+| `Div` | 8.3 ns/op | 161 ns/op | **19×** | 0 | 8 (232 B) |
+| `Pow(1.1, 60)` | 39 ns/op | 217 ns/op | **6×** | 0 | 7 (224 B) |
+| `NewFromString` | 37 ns/op | 81 ns/op | **2×** | 0 | 2 (40 B) |
+| `NewFromFloat` | 19 ns/op | 66 ns/op | **3.5×** | 0 | 2 (40 B) |
+| `String` | 54 ns/op | 106 ns/op | **2×** | 1 (24 B) | 2 (32 B) |
 
 Reproduce: `cd bench && go test -bench=. -benchmem`. The `bench/` sub-module has its own `go.mod` so the main package keeps zero external dependencies.
 
@@ -163,23 +163,23 @@ On operands with no fractional part — counts, quantities, integer money in min
 
 | Operation | aytechnet | shopspring | Speedup | aytechnet allocs | shopspring allocs |
 |---|---:|---:|---:|---:|---:|
-| `Add` (int) | 1.7 ns/op | 53 ns/op | **32×** | 0 | 2 (80 B) |
-| `Sub` (int) | 1.7 ns/op | 43 ns/op | **25×** | 0 | 2 (80 B) |
-| `Mul` (int) | 2.4 ns/op | 53 ns/op | **22×** | 0 | 2 (80 B) |
-| `Div` (exact, 620/31) | 7.5 ns/op | 203 ns/op | **27×** | 0 | 7 (184 B) |
-| `Div` (inexact, 1e15/7) | 14 ns/op | 270 ns/op | **19×** | 0 | 10 (288 B) |
-| `NewFromInt` | 1.4 ns/op | 31 ns/op | **22×** | 0 | 2 (40 B) |
-| `NewFromInt32` | 0.3 ns/op | 31 ns/op | **~100×** † | 0 | 2 (40 B) |
+| `Add` (int) | 1.7 ns/op | 44 ns/op | **26×** | 0 | 2 (80 B) |
+| `Sub` (int) | 1.7 ns/op | 35 ns/op | **21×** | 0 | 2 (40 B) |
+| `Mul` (int) | 2.2 ns/op | 47 ns/op | **21×** | 0 | 2 (80 B) |
+| `Div` (exact, 620/31) | 7.5 ns/op | 93 ns/op | **12×** | 0 | 4 (120 B) |
+| `Div` (inexact, 1e15/7) | 14 ns/op | 149 ns/op | **11×** | 0 | 7 (224 B) |
+| `NewFromInt` | 1.3 ns/op | 23 ns/op | **17×** | 0 | 2 (40 B) |
+| `NewFromInt32` | 0.4 ns/op | 22 ns/op | **~50×** † | 0 | 2 (40 B) |
 
-† `NewFromInt32` inlines to little more than a sign-extension, because an in-range integer *is* the internal encoding (`type Decimal int64`); at ~1 CPU cycle this figure sits near the measurement floor and is inlining-sensitive — the arithmetic core's honest range is **~20–32×**.
+† `NewFromInt32` inlines to little more than a sign-extension, because an in-range integer *is* the internal encoding (`type Decimal int64`); at ~1 CPU cycle this figure sits near the measurement floor and is inlining-sensitive — the arithmetic core's honest range is **~11–26×** (division ~11–12×, add/sub/mul ~21–26×).
 
-The most representative figure is a **running sum** (`acc = 0 + 1 + 2 + …`, one int→Decimal conversion plus one `Add` per term, accumulator carried across iterations so the work is a genuine data dependency — no compiler trickery possible): **2.4 ns/term, 0 allocations** vs **53 ns/term, 2 allocations** for shopspring (**~21×**). This mirrors summing a column of integer amounts on an invoice. Note: the running total stays exact only while it fits aytechnet's 57-bit mantissa (`sum ≈ b.N²/2 < 1.44e17`, i.e. `b.N < ~5.4e8`, which covers the default `-benchtime=1s`); past that the per-term cost rises to ~6 ns as adds take the rounding path, so pin a short `-benchtime` (or `-benchtime=300000000x`) for the headline figure.
+The most representative figure is a **running sum** (`acc = 0 + 1 + 2 + …`, one int→Decimal conversion plus one `Add` per term, accumulator carried across iterations so the work is a genuine data dependency — no compiler trickery possible): **2.4 ns/term, 0 allocations** vs **46 ns/term, 2 allocations** for shopspring (**~19×**). This mirrors summing a column of integer amounts on an invoice. Note: the running total stays exact only while it fits aytechnet's 57-bit mantissa (`sum ≈ b.N²/2 < 1.44e17`, i.e. `b.N < ~5.4e8`, which covers the default `-benchtime=1s`); past that the per-term cost rises to ~6 ns as adds take the rounding path, so pin a short `-benchtime` (or `-benchtime=300000000x`) for the headline figure.
 
 Reproduce: `cd bench && go test -bench='Int|Sum' -benchmem -count=6 -benchtime=200ms`.
 
 ### Transcendental / trigonometric
 
-`Ln`, `Sin`, `Cos`, `Tan`, `Atan` (and `Sqrt`, which shopspring lacks) are iterative
+`Ln`, `Sin`, `Cos`, `Tan`, `Atan` (and `Sqrt`, added to shopspring in v1.6.0 and not benchmarked here yet) are iterative
 functions, not hot-path. These figures are **indicative, not iso-precision**:
 aytechnet computes to its ~17-digit `int64` mantissa, while shopspring computes to a
 higher internal precision with `math/big` — so part of the gap is aytechnet doing
@@ -188,19 +188,19 @@ the stdlib `math` package in `TestMathAccuracy` (all within 1e-13).
 
 | Operation | aytechnet | shopspring | Speedup | aytechnet allocs | shopspring allocs |
 |---|---:|---:|---:|---:|---:|
-| `Sin(0.5)` | 35 ns/op | 7199 ns/op | **~205×** | 0 | 124 (6979 B) |
-| `Cos(0.5)` | 37 ns/op | 7727 ns/op | **~208×** | 0 | 137 (7756 B) |
-| `Tan(0.5)` | 37 ns/op | 7734 ns/op | **~207×** | 0 | 137 (6979 B) |
-| `Atan(0.5)` | 33 ns/op | 9552 ns/op | **~290×** | 0 | 151 (4954 B) |
-| `Ln(2.5)` (precision 16) | 55 ns/op | 66500 ns/op | **~1200×** | 0 | 1313 (82 kB) |
-| `Sqrt(2)` | 23 ns/op | *n/a* | — | 0 | — |
+| `Sin(0.5)` | 38 ns/op | 3382 ns/op | **~88×** | 0 | 71 (4920 B) |
+| `Cos(0.5)` | 40 ns/op | 3760 ns/op | **~94×** | 0 | 77 (5448 B) |
+| `Tan(0.5)` | 38 ns/op | 2731 ns/op | **~71×** | 0 | 62 (3954 B) |
+| `Atan(0.5)` | 34 ns/op | 1469 ns/op | **~43×** | 0 | 51 (2136 B) |
+| `Ln(2.5)` (precision 16) | 57 ns/op | 2541 ns/op | **~45×** | 0 | 51 (2288 B) |
+| `Sqrt(2)` | 23 ns/op | *not benchmarked* | — | 0 | — |
 
 These large multipliers are dominated by the precision mismatch: aytechnet's trig are
 backed by hardware `float64` (≈15–16 significant digits, the most this 17-digit type can
 hold) and round once, whereas shopspring computes to arbitrary precision with `math/big`
-(e.g. `Ln` does 1313 allocations / 82 kB). The honest reading is *"if 16 digits is enough,
-aytechnet gives it allocation-free for two orders of magnitude less work"* — not that the
-algorithms are intrinsically 200×–1000× better.
+(e.g. `Ln` does 51 allocations / 2.3 kB). The honest reading is *"if 16 digits is enough,
+aytechnet gives it allocation-free for one to two orders of magnitude less work"* — not that
+the algorithms are intrinsically 40×–95× better.
 
 `Ln` (precision >= 16) is special: it does **not** use `float64`/`math.Log`. It reduces the
 value in binary to `a·2^K`, `a ∈ [1,2)`, and sums the `atanh` series
@@ -208,9 +208,9 @@ value in binary to `a·2^K`, `a ∈ [1,2)`, and sums the `atanh` series
 fills the type's 57-bit precision — verified against an independent 240-bit `big.Float`
 reference (`TestLnHighPrecision`) to < 1e-16 relative, typically ~1e-17, i.e. ~10× tighter
 than the float64 path. The right way to read its speed: getting that 17th correct digit any
-other way means an arbitrary-precision library (`math/big`), which is ~66 µs here — so this
-path is **both more precise and ~1200× faster than the only alternative that matches its
-precision**. The ~4 ns it costs over aytechnet's own float64 path is noise by comparison, and
+other way means an arbitrary-precision library (`math/big`), which is ~2.5 µs here with
+shopspring v1.6 — so this path is **both more precise and ~45× faster than the only
+alternative that matches its precision**. The ~4 ns it costs over aytechnet's own float64 path is noise by comparison, and
 it means you never have to recompute in a slower big-number library for the extra digit.
 Values whose result `|ln|` is tiny (`x` within ~1 % of 1) fall back to the float64 path:
 there the 2^63 fixed-point scale loses relative precision and `math.Log` is more accurate.
