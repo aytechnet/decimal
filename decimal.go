@@ -355,6 +355,13 @@ func (d Decimal) Copy() Decimal {
 	return d
 }
 
+// Normalize returns d unchanged: a Decimal already has a unique representation (1.50, 1.5 and New(15, -1)
+// are the same int64, and every exact zero is Zero), so == and reflect.DeepEqual compare values.
+// Provided for API compatibility with shopspring/decimal, where it strips the trailing zeros of the coefficient.
+func (d Decimal) Normalize() Decimal {
+	return d
+}
+
 // Equal returns whether d1 == d2 without taking care of loss bit. The values Null, Zero, NearZero, NearPositiveZero and NearNegativeZero are equals.
 func (d1 Decimal) Equal(d2 Decimal) bool {
 	d := d1.Sub(d2)
@@ -848,6 +855,9 @@ func (d Decimal) Ln(precision int32) Decimal {
 //	Sqrt(±0) = ±0
 //	Sqrt(x < 0) = NaN
 //	Sqrt(NaN) = NaN
+//
+// Intentionally NOT compatible with shopspring/decimal v1.6+, whose Sqrt returns (Decimal, error):
+// the existing v1 signature is kept, a negative input yields NaN instead of an error (see README).
 func (d Decimal) Sqrt() Decimal {
 	f, x := d.Float64()
 

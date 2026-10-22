@@ -13,7 +13,7 @@ High performance, zero-allocation, low memory usage (8 bytes), low precision (17
  - the unitialized value is Null and is safe to use without initialization, intepreted as 0 which is different from 0, usefull in omitempty flag for JSON decoding/encoding.
  - **low-memory** usage as internal representation is **int64** and value between -144115188075855871 and 144115188075855871 can safely be used as Decimal.
  - **no heap allocations** to prevent garbage collector impact.
- - **high performance**, fractional arithmetic is 4× to 19× faster than [shopspring/decimal](https://github.com/shopspring/decimal) v1.6, pure-integer arithmetic 11× to 26×, trigonometric functions ~40× to ~95×, and `Ln` ~45× — all allocation-free, where shopspring allocates on every operation (see Benchmarks below).
+ - **high performance**, fractional arithmetic is 4× to 19× faster than [shopspring/decimal](https://github.com/shopspring/decimal) v1.6, pure-integer arithmetic 11× to 26×, trigonometric functions ~40× to ~95×, `Ln` ~45× and `Sqrt` ~15× — all allocation-free, where shopspring allocates on every operation (see Benchmarks below).
  - compact binary serialization from 1 to 10 bytes — **open, documented, interoperable** format (see [BINARY_FORMAT.md](BINARY_FORMAT.md); same format covers `Weight` and `Length` with explicit unit support).
  - 57 bits mantissa to limit rounding errors compared to float64 (50 bits mantissa) for common operation like additions, multiplications, divisions.
  - **loss** flag available so if a rounding error occurs information is not lost.
@@ -98,7 +98,7 @@ fmt.Println(decimal.NewLengthFromString("1au")) // 149597870700m (UAI 2012)
 
 ## shopspring/decimal compatibility
 
-The public API mirrors [shopspring/decimal](https://github.com/shopspring/decimal). Methods added for compatibility include `DivRound`, `PowInt32`, `Shift`, `Truncate`, `RoundUp`, `RoundDown`, `RoundCash`, `StringFixedCash`, `NumDigits`, `Copy`, and `NewFromFormattedString`. JSON output is **unquoted** by default (raw number) — incompatible with shopspring's quoted-string default; route values through `MarshalText` / `UnmarshalText` if you need cross-package interop.
+The public API mirrors [shopspring/decimal](https://github.com/shopspring/decimal). Methods added for compatibility include `DivRound`, `PowInt32`, `Shift`, `Truncate`, `RoundUp`, `RoundDown`, `RoundCash`, `StringFixedCash`, `NumDigits`, `Copy`, `Normalize` (a no-op: the representation is already unique) and `NewFromFormattedString`. `Decimal` implements `fmt.Formatter` like shopspring v1.6: `%.2f` rounds like `StringFixed`, with width and the `-`, `+`, ` ` and `0` flags, `%d` prints integer decimals and `%#v` prints Go syntax such as `decimal.New(-314, -2)`. JSON output is **unquoted** by default (raw number) — incompatible with shopspring's quoted-string default; route values through `MarshalText` / `UnmarshalText` if you need cross-package interop.
 
 **Rounding** matches shopspring on every entry point (`Round`, `StringFixed`, `DivRound`, `RoundCash`, `RoundBank`, `RoundUp`/`Down`/`Ceil`/`Floor`, `Truncate`), checked value by value against shopspring v1.4.0 and v1.6.0 by `bench/compare_round_test.go`: a half rounds away from zero, symmetrically, so `-2.5` rounds to `-3` and a credit note rounds like its invoice. Up to v1.0.2 a negative half rounded toward +∞ (`-2.5` → `-2`). One difference remains: shopspring v1.5+ `Truncate` with a negative precision truncates the integer part, here it returns the value unchanged.
 
@@ -126,6 +126,14 @@ single expression. Check `IsNaN()` / `IsInfinite()` on the final value when the 
 uncertain, exactly as you would inspect a `float64` result. If you need shopspring's
 error-returning shape, wrap the call: `func ln(d Decimal) (Decimal, error) { r := d.Ln(16); if r.IsNaN() { return r, errLn }; return r, nil }`.
 
+### `Sqrt` signature is intentionally NOT compatible
+
+shopspring v1.6.0 added `Sqrt() (Decimal, error)` (with `SqrtRound`, `Root` and `RootRound`). This
+package keeps its existing `Sqrt() Decimal`, on purpose and for the same reason as `Ln`: changing it
+would break every caller of the v1 API, and a negative input already yields `NaN` instead of an error,
+so the call composes in an expression. Code written for shopspring's `Sqrt` therefore does not compile
+against this package as is; drop the error, or wrap the call as shown for `Ln` above.
+
 Methods around `math/big` (`NewFromBigInt`, `NewFromBigRat`, `BigInt`, `BigFloat`, `Rat`, `Coefficient`) are not supported by design — the whole point of the package is to avoid `big.Int` allocations.
 
 ## Benchmarks
@@ -142,6 +150,7 @@ All figures: vs [shopspring/decimal](https://github.com/shopspring/decimal) v1.6
 | Integer construction (`NewFromInt`/`Int32`) | **17×–~50×** | 0 | `Int32` near measurement floor |
 | Running sum `Σ i` (convert + add) | **~19×** | 0 | true data dependency, most defensible |
 | Transcendental / trig (`Sin`/`Cos`/`Tan`/`Atan`/`Ln`) | **~40×–~95×** | 0 | **NOT iso-precision** — see caveat below |
+| `Sqrt` | **~15×** | 0 | close to iso-precision (16 places both) |
 
 Detailed per-operation tables follow.
 
@@ -181,7 +190,7 @@ Reproduce: `cd bench && go test -bench='Int|Sum' -benchmem -count=6 -benchtime=2
 
 ### Transcendental / trigonometric
 
-`Ln`, `Sin`, `Cos`, `Tan`, `Atan` (and `Sqrt`, added to shopspring in v1.6.0 and not benchmarked here yet) are iterative
+`Ln`, `Sin`, `Cos`, `Tan`, `Atan` and `Sqrt` (added to shopspring in v1.6.0) are iterative
 functions, not hot-path. These figures are **indicative, not iso-precision**:
 aytechnet computes to its ~17-digit `int64` mantissa, while shopspring computes to a
 higher internal precision with `math/big` — so part of the gap is aytechnet doing
@@ -195,7 +204,7 @@ the stdlib `math` package in `TestMathAccuracy` (all within 1e-13).
 | `Tan(0.5)` | 38 ns/op | 2731 ns/op | **~71×** | 0 | 62 (3954 B) |
 | `Atan(0.5)` | 34 ns/op | 1469 ns/op | **~43×** | 0 | 51 (2136 B) |
 | `Ln(2.5)` (precision 16) | 57 ns/op | 2541 ns/op | **~45×** | 0 | 51 (2288 B) |
-| `Sqrt(2)` | 23 ns/op | *not benchmarked* | — | 0 | — |
+| `Sqrt(2)` | 23 ns/op | 336 ns/op | **~15×** | 0 | 11 (248 B) |
 
 These large multipliers are dominated by the precision mismatch: aytechnet's trig are
 backed by hardware `float64` (≈15–16 significant digits, the most this 17-digit type can

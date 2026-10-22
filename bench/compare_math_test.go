@@ -1,5 +1,5 @@
 // Transcendental / trigonometric comparison: Ln, Sin, Cos, Tan, and the inverse
-// Atan (the only inverse trig both packages expose), plus aytechnet-only Sqrt.
+// Atan (the only inverse trig both packages expose), and Sqrt (shopspring v1.6.0+).
 // Run from this directory:
 //
 //	go test -bench='Ln|Sin|Cos|Tan|Atan|Sqrt' -benchmem -count=6
@@ -171,7 +171,8 @@ func BenchmarkAtanShopspring(b *testing.B) {
 }
 
 // =============================================================================
-// Sqrt(2) — aytechnet only (shopspring v1.4.0 has no Sqrt method)
+// Sqrt(2) — aytechnet returns Decimal, shopspring (v1.6.0+) returns (Decimal, error)
+// and computes DivisionPrecision (16) places exactly with big.Int.Sqrt
 // =============================================================================
 
 func BenchmarkSqrtAytechnet(b *testing.B) {
@@ -182,4 +183,14 @@ func BenchmarkSqrtAytechnet(b *testing.B) {
 		r = d.Sqrt()
 	}
 	sinkAy = r
+}
+
+func BenchmarkSqrtShopspring(b *testing.B) {
+	d := ss.New(2, 0) // 2
+	var r ss.Decimal
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r, _ = d.Sqrt()
+	}
+	sinkSS = r
 }
