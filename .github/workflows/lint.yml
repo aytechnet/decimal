@@ -15,20 +15,22 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: stable
+          # pinned with the linter below: a newer Go can change the export data format the linter
+          # reads (Go 1.27.3 broke golangci-lint v2.13.2 with "export data version 5")
+          go-version: '1.27.3'
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          # pinned: validated locally against this exact version (v2 config)
-          version: v2.13.2
+          # pinned: validated locally against this exact version and Go 1.27.3 (v2 config)
+          version: v2.15.0
 
       - name: Job summary
         run: |
           {
             echo "## decimal — lint report"
             echo ""
-            echo "golangci-lint **v2.13.2** — ✅ 0 issues"
+            echo "golangci-lint **v2.15.0** (Go 1.27.3) — ✅ 0 issues"
             echo ""
             echo "Enabled analyses: staticcheck (SA, minus SA9004 — see .golangci.yml), govet, errcheck, ineffassign, unused."
           } >> "$GITHUB_STEP_SUMMARY"
