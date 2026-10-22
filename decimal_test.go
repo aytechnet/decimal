@@ -3492,3 +3492,27 @@ func BenchmarkPublicDecimalPow600(b *testing.B) {
 		_ = d1.Pow(d2)
 	}
 }
+
+func TestNewFromFloatShortest(t *testing.T) {
+	for _, c := range []struct {
+		f    float64
+		want string
+	}{
+		{-178464.49, "-178464.49"},
+		{0.1, "0.1"},
+		{666145.821, "666145.821"},
+		{-128860.63, "-128860.63"},
+		{1e20, "100000000000000000000"},
+	} {
+		if d := NewFromFloat(c.f); d.String() != c.want || !d.IsExact() {
+			t.Errorf("NewFromFloat(%v) = %v, want exactly %s", c.f, d, c.want)
+		}
+	}
+	if d := NewFromFloat32(54.33); d.String() != "54.33" {
+		t.Errorf("NewFromFloat32(54.33) = %v, want 54.33", d)
+	}
+	// the binary conversion is correct to the 17th digit (was wrong from the 16th before v1.1.0)
+	if d := NewFromFloat64Exact(-178464.49, true); d.String() != "~-178464.48999999999" {
+		t.Errorf("NewFromFloat64Exact(-178464.49) = %v, want ~-178464.48999999999", d)
+	}
+}

@@ -1156,6 +1156,14 @@ func newFromFloat(v, m2 uint64, e2 int64) Decimal {
 		v |= loss
 	}
 
+	// left-align the mantissa so that each multiplication by 10^19 below keeps 64 significant bits in
+	// its high word (a 53-bit mantissa kept only ~52 bits, ~15.7 digits, so the 17th digit was wrong)
+	if e2 < 0 {
+		lz := bits.LeadingZeros64(m2)
+		m2 <<= uint(lz)
+		e2 -= int64(lz)
+	}
+
 	// normalize mantissa if negative exponent
 	for e2 < 0 {
 		hi, lo := bits.Mul64(m2, tenPow[len(tenPow)-1])

@@ -107,3 +107,48 @@ func TestNewFromFloatWithExponentParity(t *testing.T) {
 		t.Errorf("NewFromFloatWithExponent: %d mismatches with shopspring:%s", bad, ex)
 	}
 }
+
+// TestNewFromFloatParity checks NewFromFloat and NewFromFloat32 against shopspring: both use the
+// shortest decimal that converts back to the same float, so money values stay exact (-178464.49).
+// A Decimal holds at most 16 fractional digits (and ±~0 below): a shortest decimal with more is
+// rounded to them with the loss bit set.
+func TestNewFromFloatParity(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	bad, ex := 0, ""
+	for i := 0; i < 1000000; i++ {
+		var f float64
+		switch i % 3 {
+		case 0: // money-like values
+			f = float64(rng.Int63n(2000000000)-1000000000) / 100
+		case 1:
+			f = (rng.Float64() - 0.5) * math.Pow(10, float64(rng.Intn(30)-12))
+		default:
+			f = float64(rng.Int63n(1<<53)-(1<<52)) * math.Pow(2, float64(rng.Intn(80)-80))
+		}
+		da, da32 := ay.NewFromFloat(f), ay.NewFromFloat32(float32(f))
+		ds, ds32 := ss.NewFromFloat(f), ss.NewFromFloat32(float32(f))
+		ga, gs, ga32, gs32 := da.String(), ds.String(), da32.String(), ds32.String()
+		if !sameShortest(da, ds) || !sameShortest(da32, ds32) {
+			bad++
+			if len(ex) < 400 {
+				ex += fmt.Sprintf(" %v: aytechnet %s/%s, shopspring %s/%s;", f, ga, ga32, gs, gs32)
+			}
+		}
+	}
+	if bad > 0 {
+		t.Errorf("NewFromFloat: %d mismatches with shopspring:%s", bad, ex)
+	}
+}
+
+// sameShortest reports whether a equals s exactly, or, when a carries the loss bit, equals s rounded
+// to a's exponent (or a is a near zero for an s below its range).
+func sameShortest(a ay.Decimal, s ss.Decimal) bool {
+	x, err := ss.NewFromString(strings.TrimPrefix(a.String(), "~"))
+	if err != nil {
+		return a.IsExact() == false && s.Abs().LessThan(ss.New(1, -16))
+	}
+	if a.IsExact() {
+		return x.Equal(s)
+	}
+	return x.Equal(s.Round(-a.Exponent()))
+}

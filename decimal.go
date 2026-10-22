@@ -1007,13 +1007,55 @@ func NewFromInt32(value int32) Decimal {
 	}
 }
 
-// NewFromFloat converts a float64 to Decimal.
+// NewFromFloat converts a float64 to Decimal using the shortest decimal that converts back to the same
+// float64, like shopspring/decimal and strconv.FormatFloat(value, 'g', -1, 64): NewFromFloat(-178464.49)
+// is exactly -178464.49, not the binary value -178464.48999999999068... It has at most 17 significant
+// digits, so it always fits the 57-bit mantissa and is exact (no loss bit). -0 gives NearNegativeZero,
+// NaN and ±Inf give NaN and ±Inf.
+//
+// NewFromFloat64Exact converts the binary value instead, as the math functions do.
 func NewFromFloat(value float64) Decimal {
-	return NewFromFloat64Exact(value, true)
+	return newFromShortestFloat(value, 64)
 }
 
-// NewFromFloat64Exact converts a float64 to Decimal. When exact is false, the loss bit is forced on the result.
+// newFromShortestFloat parses the shortest decimal representation of value (a float64, or a float32
+// when bitSize is 32) without allocating.
+func newFromShortestFloat(value float64, bitSize int) Decimal {
+	switch {
+	case value == 0:
+		if math.Signbit(value) {
+			return NearNegativeZero
+		}
+		return Zero
+	case math.IsNaN(value):
+		return NaN
+	case math.IsInf(value, 1):
+		return PositiveInfinity
+	case math.IsInf(value, -1):
+		return NegativeInfinity
+	}
+
+	var buf [32]byte
+	if v, m, e, err := vmeFromBytes(strconv.AppendFloat(buf[:0], value, 'e', -1, bitSize), nil); err == nil {
+		return vmeAsDecimal(v, m, e)
+	}
+	if bitSize == 32 {
+		return newFromFloat32Binary(float32(value))
+	}
+	return newFromFloat64Binary(value, true)
+}
+
+// NewFromFloat64Exact converts the binary value of a float64 to Decimal, rounded to the 57-bit mantissa
+// with the loss bit set when rounded (0.1 is ~0.1000000000000000055…); when exact is false, the loss bit
+// is forced on the result. The math functions (Sqrt, Sin, Atan…) use it. NewFromFloat converts the
+// shortest decimal instead, which is what a float literal or a parsed amount means.
 func NewFromFloat64Exact(value float64, exact bool) Decimal {
+	return newFromFloat64Binary(value, exact)
+}
+
+// newFromFloat64Binary converts the binary value of a float64, rounded to the 57-bit mantissa (loss bit
+// set when rounded). When exact is false, the loss bit is forced on the result.
+func newFromFloat64Binary(value float64, exact bool) Decimal {
 	b := math.Float64bits(value)
 	e := int64((b >> 52) & 0x7ff)
 	v := b & sign
@@ -1040,8 +1082,14 @@ func NewFromFloat64Exact(value float64, exact bool) Decimal {
 	}
 }
 
-// NewFromFloat32 converts a float32 to Decimal.
+// NewFromFloat32 converts a float32 to Decimal using the shortest decimal that converts back to the
+// same float32, like shopspring/decimal: NewFromFloat32(54.33) is exactly 54.33.
 func NewFromFloat32(value float32) Decimal {
+	return newFromShortestFloat(float64(value), 32)
+}
+
+// newFromFloat32Binary converts the binary value of a float32.
+func newFromFloat32Binary(value float32) Decimal {
 	b := uint64(math.Float32bits(value))
 	e := int64((b >> 23) & 0xff)
 
