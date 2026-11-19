@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"math"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -663,17 +664,169 @@ func TestNewFromFloatWithExponent(t *testing.T) {
 		{-1250, 2, New(-13, 2)},
 		{1e20, 1, New(1, 20)}, // beyond 2^63: rounded through the decimal string
 		{-1e20, 2, New(-1, 20)},
-		{1e25, 2, New(100000000000000009, 8)}, // 10000000000000000905969664 to the hundreds, 18 digits kept
+		{1e20, -20, New(1, 20)},                       // 10^40 as an integer: beyond 128 bits, still exact
+		{0.5, -40, New(5, -1)},                        // more places than a Decimal has, none needed
+		{-876.639, -17, New(-87663900000000001, -14)}, // -876.63900000000001000 at 17 places: 14 are enough
+		{1e-30, 40, Zero},
+		{1e-30, -28, Zero}, // under half of 10^-28, beyond the 27 places of the 128-bit arithmetic
+		{4e-41, -40, Zero},
+		{5e-324, -323, Zero},
+		{1.4e32, 34, Zero}, // under half of 10^34
 	} {
 		if d := NewFromFloatWithExponent(c.value, c.exp); d != c.want {
 			t.Errorf("NewFromFloatWithExponent(%v, %d) = %v, want %v", c.value, c.exp, d, c.want)
 		}
 	}
+	// more digits than a Decimal holds: one rounding of the exact value, and the loss bit
+	for _, c := range []struct {
+		value float64
+		exp   int32
+		want  string
+	}{
+		{1e25, 2, "~10000000000000000900000000"},          // 10000000000000000905969664 to the hundreds: 18 digits kept
+		{math.Pi, -30, "~3.1415926535897931"},             // 3.141592653589793115997963468544 at 30 places
+		{0.46346675687046435, -18, "~0.4634667568704643"}, // ...4643|47 at 18 places: not ...4644
+		{8071830.16, -14, "~8071830.1600000001"},          // ...0001|49 at 14 places: not ...0002
+		{1e-30, -40, "+~0"},
+		{-1e-30, -40, "-~0"},
+		{6e-41, -40, "+~0"},   // 10^-40 once rounded
+		{5e-324, -324, "+~0"}, // the smallest float64 is above half of 10^-324
+		{5e-324, -400, "+~0"},
+		{1e33, -2, "+Inf"},
+		{-1.6e32, 0, "-Inf"},
+		{1.5e32, 2, "+Inf"},                // under 2^107, above the largest Decimal
+		{1.5e32, 34, "+Inf"},               // whatever the exponent
+		{1.4411518807585589e32, 0, "+Inf"}, // the float64 just above the largest Decimal
+	} {
+		if d := NewFromFloatWithExponent(c.value, c.exp); d.String() != c.want || d.IsExact() {
+			t.Errorf("NewFromFloatWithExponent(%v, %d) = %v (exact %v), want %s", c.value, c.exp, d, d.IsExact(), c.want)
+		}
+	}
+
 	if d := NewFromFloatWithExponent(math.NaN(), -2); !d.IsNaN() {
 		t.Errorf("NewFromFloatWithExponent(NaN, -2) should be NaN, d = %v", d)
 	}
 	if d := NewFromFloatWithExponent(math.Inf(-1), -2); d != NegativeInfinity {
 		t.Errorf("NewFromFloatWithExponent(-Inf, -2) should be -Inf, d = %v", d)
+	}
+}
+
+// TestNewFromFloatWithExponentExact checks NewFromFloatWithExponent against exact arithmetic
+// (math/big), which shares nothing with it. R being the exact binary value rounded half away from
+// zero at the asked exponent: when R is a Decimal, the result is R, exact; when R is beyond the
+// largest Decimal, an infinity — as is any value beyond it, whatever the exponent; otherwise the
+// exact value rounded half away from zero at the finest exponent a Decimal has for it, with the
+// loss bit.
+func TestNewFromFloatWithExponentExact(t *testing.T) {
+	ten := big.NewInt(10)
+	maxInt := big.NewInt(MaxInt)
+	largest := new(big.Int).Mul(maxInt, new(big.Int).Exp(ten, big.NewInt(15), nil))
+	// round(x × 10^-e), half away from zero, x = num/den
+	scaled := func(num, den *big.Int, e int64) *big.Int {
+		n, d := new(big.Int).Abs(num), new(big.Int).Set(den)
+		p := new(big.Int).Exp(ten, big.NewInt(e), nil)
+		if e < 0 {
+			n.Mul(n, p.Exp(ten, big.NewInt(-e), nil))
+		} else {
+			d.Mul(d, p)
+		}
+		q, r := new(big.Int).QuoRem(n, d, new(big.Int))
+		if r.Lsh(r, 1).Cmp(d) >= 0 {
+			q.Add(q, big.NewInt(1))
+		}
+		return q
+	}
+	check := func(f float64, exp int32) {
+		got := NewFromFloatWithExponent(f, exp)
+		x, _ := new(big.Float).SetFloat64(f).Rat(nil)
+		num, den := x.Num(), x.Denom()
+
+		// beyond the largest Decimal: an infinity, whatever the exponent
+		if new(big.Int).Abs(num).Cmp(new(big.Int).Mul(largest, den)) > 0 {
+			if !got.IsInfinite() || got.IsExact() || got.Sign()*x.Sign() <= 0 {
+				t.Fatalf("NewFromFloatWithExponent(%v, %d) = %v, want an infinity", f, exp, got)
+			}
+			return
+		}
+
+		// R = n × 10^exp, without its trailing zeros
+		n, e := scaled(num, den, int64(exp)), int64(exp)
+		if n.Sign() == 0 {
+			if got != Zero {
+				t.Fatalf("NewFromFloatWithExponent(%v, %d) = %v, want 0", f, exp, got)
+			}
+			return
+		}
+		for q, r := new(big.Int), new(big.Int); ; n, e = new(big.Int).Set(q), e+1 {
+			if q.QuoRem(n, ten, r); r.Sign() != 0 || (n.Cmp(maxInt) <= 0 && e >= decimalMinE) {
+				break
+			}
+		}
+		lost := n.Cmp(maxInt) > 0 || e < decimalMinE
+		if lost {
+			// not a Decimal: the finest exponent at which the value, rounded once, fits
+			for e = decimalMinE; ; e++ {
+				if n = scaled(num, den, e); n.Cmp(maxInt) <= 0 {
+					break
+				}
+			}
+		}
+
+		var want Decimal
+		v := uint64(0)
+		if f < 0 {
+			v = sign
+		}
+		switch {
+		case lost && n.Sign() == 0:
+			want = vmeAsDecimal(v|loss, 0, math.MinInt64)
+		case lost:
+			want = vmeAsDecimal(v|loss, n.Uint64(), e)
+		default:
+			want = vmeAsDecimal(v, n.Uint64(), e)
+		}
+		if got != want {
+			t.Fatalf("NewFromFloatWithExponent(%v (%x), %d) = %v, want %v", f, math.Float64bits(f), exp, got, want)
+		}
+	}
+
+	r := uint64(99887766554433) // xorshift: the same values at every run
+	next := func() uint64 {
+		r ^= r << 13
+		r ^= r >> 7
+		r ^= r << 17
+		return r
+	}
+	for i := 0; i < 60000; i++ {
+		var f float64
+		switch next() % 8 {
+		case 0: // amounts, often near a tie
+			f = float64(int64(next()%2000000)-1000000) / 1000
+		case 1:
+			f = (float64(next()>>11)/(1<<53) - 0.5) * math.Pow(10, float64(next()%16)-6)
+		case 2: // exact binary ties
+			f = float64(int64(next()%20000)-10000) / 8
+		case 3:
+			f = float64(int64(next()>>11)-(1<<52)) * math.Pow(2, float64(next()%60)-70)
+		case 4: // any scale a Decimal holds, and beyond
+			f = float64(next()>>11) / (1 << 53) * math.Pow(10, float64(next()%56)-22)
+		case 5:
+			f = float64(int64(next()%2000000000)-1000000000) / 100
+		case 6: // integers, up to 2^107 and beyond
+			f = -float64(next()>>11) * math.Pow(2, float64(next()%60))
+		default: // any mantissa, 2^-135 to 2^134
+			f = math.Float64frombits(next()&^(0x7ff<<52) | (888+next()%270)<<52)
+		}
+		check(f, int32(next()%100)-60)
+		check(f, int32(next()%20)-16)
+	}
+	check(15000.1234567890123, -13) // 10^4 above 2^13: the first exponent tried is one too fine
+	for _, f := range []float64{0.5, 2.5, 0.125, 0.015, 0.025, 5e-41, 4.9999999999999996e-41, 5.0000000000000004e-41, 1e15, 1e16, 1e17, 1e20, 1e25, 1.44e32, 1.45e32, 1.6e32, 1.7e32,
+		9007199254740993, 1e-15, 1e-16, 4e-17, 6e-17, 1e-17, 1e-30, 5e-324, 2.2250738585072014e-308, 1e300, math.MaxFloat64, math.Pi} {
+		for exp := int32(-70); exp <= 45; exp++ {
+			check(f, exp)
+			check(-f, exp)
+		}
 	}
 }
 
@@ -3674,5 +3827,162 @@ func TestDecimalJSONMagic(t *testing.T) {
 	var d Decimal
 	if err := json.Unmarshal([]byte(`null`), &d); err != nil || !d.IsNull() {
 		t.Errorf(`json.Unmarshal(null) should be Null, got %v, error = %v`, d, err)
+	}
+}
+
+// TestNewFromFloatPaths checks NewFromFloat and NewFromFloat32 against the reference: strconv's
+// shortest decimal, read by the general parser. No path of the conversion uses text; each must give
+// the Decimal of the reference, for every value. The text-free shortcut (newFromShortFloat) must
+// also answer whenever the shortest decimal has at most 15 significant digits and fits a Decimal,
+// and Schubfach (shortestDecimal) must give the very digits strconv writes.
+func TestNewFromFloatPaths(t *testing.T) {
+	fast, total := 0, 0
+	reference := func(f float64, bitSize int) Decimal {
+		v, m, e, _ := vmeFromBytes(strconv.AppendFloat(nil, f, 'e', -1, bitSize), nil)
+		return vmeAsDecimal(v, m, e)
+	}
+	// the digits of strconv, as an integer and an exponent
+	digits := func(f float64, bitSize int) (uint64, int64) {
+		txt := strconv.FormatFloat(math.Abs(f), 'e', -1, bitSize)
+		i := strings.IndexByte(txt, 'e')
+		d := strings.Replace(txt[:i], ".", "", 1)
+		m, _ := strconv.ParseUint(d, 10, 64)
+		e, _ := strconv.Atoi(txt[i+1:])
+		return m, int64(e - (len(d) - 1))
+	}
+	sameDigits := func(f float64, bitSize int, m uint64, e int64) {
+		for m%10 == 0 {
+			m, e = m/10, e+1
+		}
+		if wm, we := digits(f, bitSize); m != wm || e != we {
+			t.Fatalf(`shortestDecimal of %v (%d bits) should be %de%d, got %de%d`, f, bitSize, wm, we, m, e)
+		}
+	}
+
+	check32 := func(f32 float32) {
+		f := float64(f32)
+		if f == 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+			return
+		}
+		want := reference(f, 32)
+		if d := NewFromFloat32(f32); d != want {
+			t.Fatalf(`NewFromFloat32(%v) (%x) should be %v, got %v`, f32, math.Float32bits(f32), want, d)
+		}
+		if got, ok := newFromShortFloat(f, 32); ok && got != want {
+			t.Fatalf(`newFromShortFloat(%v, 32) should be %v, got %v`, f32, want, got)
+		}
+		b := math.Float32bits(f32)
+		if frac, biased := uint64(b&(1<<23-1)), int64(b>>23)&0xff; biased > 24 && biased < 234 {
+			m, e := shortestDecimal(frac|1<<23, biased-150, frac == 0)
+			sameDigits(f, 32, m, e)
+		}
+	}
+	check := func(f float64) {
+		if f == 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+			return
+		}
+		total++
+
+		want := reference(f, 64)
+		if d := NewFromFloat(f); d != want {
+			t.Fatalf(`NewFromFloat(%v) (%x) should be %v, got %v`, f, math.Float64bits(f), want, d)
+		}
+		got, ok := newFromShortFloat(f, 64)
+		if ok {
+			fast++
+			if got != want {
+				t.Fatalf(`newFromShortFloat(%v) (%x) should be %v, got %v`, f, math.Float64bits(f), want, got)
+			}
+		} else if a := math.Abs(f); a >= 1e-16 && a < 1e15 {
+			if m, e := digits(f, 64); m < 1e15 && e >= -16 {
+				t.Fatalf(`newFromShortFloat(%v) should answer: %de%d`, f, m, e)
+			}
+		}
+		b := math.Float64bits(f)
+		if frac, biased := b&(1<<52-1), int64(b>>52)&0x7ff; biased >= 950 && biased <= 1129 {
+			m, e := shortestDecimal(frac|1<<52, biased-1075, frac == 0)
+			sameDigits(f, 64, m, e)
+		}
+
+		check32(float32(f))
+	}
+
+	r := uint64(88172645463325252) // xorshift: the same values at every run
+	next := func() uint64 {
+		r ^= r << 13
+		r ^= r >> 7
+		r ^= r << 17
+		return r
+	}
+	for i := 0; i < 150000; i++ {
+		u := next()
+		check(math.Float64frombits(u))                               // any float64
+		check32(math.Float32frombits(uint32(u)))                     // any float32
+		check(float64(int64(u%2000000000)-1000000000) / 100)         // amounts
+		check(float64(u%1000000000000000) / float64Pow10[next()%19]) // up to 15 digits at any scale
+		check(float64(u%100000) / 1000)                              // weights, rates
+		check(float64(int64(u >> 10)))                               // integers, beyond 2^53 too
+		check(float64(u>>11) / (1 << 53) * float64Pow10[next()%23])  // 17 digits
+		check(-float64(u>>11) / (1 << 53) / float64Pow10[next()%23]) // 17 digits, down to 10^-22
+		check(float64(u>>11) * float64Pow10[next()%18])              // up to the largest Decimal and beyond
+		check(math.Float64frombits(u & (1<<52 - 1)))                 // subnormals
+		// any mantissa, the powers of two and their neighbours (the narrow interval), 2^-143 to 2^136
+		exp := (880 + next()%280) << 52
+		check(math.Float64frombits(u&(1<<52-1) | exp))
+		check(math.Float64frombits(exp | next()%4))
+		check(-math.Float64frombits(exp | (1<<52 - 1 - next()%4)))
+		// the same for a float32, every exponent
+		exp32 := uint32(next()%255) << 23
+		check32(math.Float32frombits(uint32(u)&(1<<23-1) | exp32))
+		check32(math.Float32frombits(exp32 | uint32(next()%4)))
+		check32(-math.Float32frombits(exp32 | (1<<23 - 1 - uint32(next()%4))))
+	}
+
+	// every exponent of both types, with the mantissas of the edges
+	for e := uint64(0); e < 2047; e++ {
+		for _, m := range []uint64{0, 1, 2, 1<<52 - 1, 1<<52 - 2, 1 << 51} {
+			check(math.Float64frombits(e<<52 | m))
+			check(-math.Float64frombits(e<<52 | m))
+		}
+	}
+	for e := uint32(0); e < 255; e++ {
+		for _, m := range []uint32{0, 1, 2, 1<<23 - 1, 1<<23 - 2, 1 << 22} {
+			check32(math.Float32frombits(e<<23 | m))
+			check32(-math.Float32frombits(e<<23 | m))
+		}
+	}
+
+	for _, f := range []float64{
+		0.1, 0.2, 0.3, 0.30000000000000004, 12.5, 178464.49, 123456, 4, math.Pi,
+		1e-7, 1.5e-9, 1e-15, 1e-16, 1.5e-16, 4e-17, 6e-17, 1e-17, 1e-18, 1e-22, 1e-23, 5e-324, math.SmallestNonzeroFloat64,
+		999999999999999, 9.999999999999999e14, 1e15, 1e15 + 0.5, 123456789012345.6, 12345678901234.56,
+		9007199254740991, 9007199254740992, 9007199254740994, 7.3e16, 1e17, 1.2345678901234567e20, 1e22, 1e23,
+		1e31, 1.4e32, 1.44e32, 1.45e32, 1.5e32, 1.6e32, 1.7e32, 1e33, 1e300, math.MaxFloat64,
+		16777215, 16777216, 16777218, 0.5, 1.0 / 3, math.MaxFloat32, math.SmallestNonzeroFloat32,
+	} {
+		check(f)
+		check(-f)
+	}
+
+	if fast == 0 || fast == total {
+		t.Errorf(`both paths should be taken: of %d values, the shortcut answered %d`, total, fast)
+	}
+}
+
+func BenchmarkDecimalNewFromFloatAmount(b *testing.B) {
+	f := 178464.49
+
+	for i := 0; i < b.N; i++ {
+		NewFromFloat(f)
+		f = -f
+	}
+}
+
+func BenchmarkDecimalNewFromFloat17Digits(b *testing.B) {
+	f := math.Pi
+
+	for i := 0; i < b.N; i++ {
+		NewFromFloat(f)
+		f = -f
 	}
 }

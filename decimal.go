@@ -11,8 +11,6 @@ import (
 	"math"
 	"math/bits"
 	"regexp"
-	"strconv"
-	"strings"
 )
 
 // Decimal represents a fixed-point decimal hold as a 64 bits integer
@@ -1108,11 +1106,123 @@ func newFromShortestFloat(value float64, bitSize int) Decimal {
 		return NegativeInfinity
 	}
 
-	// strconv's 'e' output (d.ddde±dd, at most 17 digits) always parses: out-of-range exponents give
-	// ±Inf or a near zero, never an error
-	var buf [32]byte
-	v, m, e, _ := vmeFromBytes(strconv.AppendFloat(buf[:0], value, 'e', -1, bitSize), nil)
+	if d, ok := newFromShortFloat(value, bitSize); ok {
+		return d
+	}
+
+	// the general path: Schubfach, on the binary fields of the float
+	if bitSize == 32 {
+		b := math.Float32bits(float32(value))
+		frac, biased := uint64(b&(1<<23-1)), int64(b>>23)&0xff
+		if biased == 0 {
+			return newFromBinaryFloat(value < 0, frac, -149, false) // subnormal
+		}
+		return newFromBinaryFloat(value < 0, frac|1<<23, biased-150, frac == 0 && biased > 1)
+	}
+	b := math.Float64bits(value)
+	frac, biased := b&(1<<52-1), int64(b>>52)&0x7ff
+	if biased == 0 {
+		return newFromBinaryFloat(value < 0, frac, -1074, false) // subnormal
+	}
+	return newFromBinaryFloat(value < 0, frac|1<<52, biased-1075, frac == 0 && biased > 1)
+}
+
+// newFromBinaryFloat converts the float c×2^q to the Decimal of its shortest decimal (shortest.go),
+// rounded by vmeAsDecimal like any other decimal when its digits go under 10^-16. A float out of
+// the scales shortestDecimal covers needs no digit: from 2^107 on it is beyond the largest Decimal
+// (about 1.44×10^32), an infinity; under 2^-73 it is far under the smallest (10^-16), a near zero.
+func newFromBinaryFloat(negative bool, c uint64, q int64, closer bool) Decimal {
+	var v uint64
+	if negative {
+		v = sign
+	}
+
+	switch {
+	case int64(bits.Len64(c))+q > 107:
+		return vmeAsDecimal(v|loss, 0, math.MaxInt64)
+	case q < -125:
+		return vmeAsDecimal(v|loss, 0, math.MinInt64)
+	}
+
+	m, e := shortestDecimal(c, q, closer)
 	return vmeAsDecimal(v, m, e)
+}
+
+// float64Pow10 are the powers of ten a float64 holds exactly.
+var float64Pow10 = [...]float64{1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22}
+
+// newFromShortFloat is the fast path of newFromShortestFloat, without text: it finds the shortest
+// decimal of a float64 that has at most 15 significant digits — an amount, a rate, a weight — and of
+// an integer; ok is false for any other value, left to newFromFloatText.
+//
+// The value is scaled by the largest power of ten 10^k that keeps it under 10^15 and rounded to the
+// integer m. Both m and 10^k (k <= 22) are exact float64 and an IEEE division is correctly rounded,
+// so float64(m)/10^k is the float64 nearest to m×10^-k, what strconv.ParseFloat would give: when it
+// is the value, m×10^-k converts back to it. It is then THE shortest decimal: a decimal of at most
+// 15 significant digits survives a round trip through float64 (DBL_DIG), so two of them never share
+// a float64, and the shortest one — which cannot be longer than this one — is this one, written with
+// trailing zeros that vmeAsDecimal drops. Conversely when the shortest decimal has at most 15 digits,
+// it is found: the product is off by less than 10^15 × 2^-52 < 0.25, so it rounds to the right m.
+func newFromShortFloat(value float64, bitSize int) (Decimal, bool) {
+	var v uint64
+
+	abs := value
+	if abs < 0 {
+		abs, v = -abs, sign
+	}
+
+	// an integer a float holds exactly, its neighbours being at least 1 apart, is its own shortest
+	// decimal (2^53 for a float64, 2^24 for a float32)
+	if bitSize == 32 {
+		if m := uint64(abs); abs < 1<<24 && float64(m) == abs {
+			return vmeAsDecimal(v, m, 0), true
+		}
+		return 0, false
+	}
+	if abs >= 1e15 {
+		if m := uint64(abs); abs < 1<<53 && float64(m) == abs {
+			return vmeAsDecimal(v, m, 0), true
+		}
+		return 0, false
+	}
+
+	// k: the largest power of ten keeping abs×10^k under 10^15. The binary exponent gives it or one
+	// too many (log10(2) ~ 1233/4096, rounded down), never one too few
+	k := 14 - ((int(math.Float64bits(abs)>>52)-1023)*1233)>>12
+	if k > 22 {
+		k = 22
+	}
+	s := abs * float64Pow10[k]
+	if s >= 1e15 {
+		k--
+		s = abs * float64Pow10[k]
+	}
+
+	m := uint64(s + 0.5)
+	if m == 0 || float64(m)/float64Pow10[k] != abs {
+		return 0, false
+	}
+
+	// drop the trailing zeros here (at most 14, m being under 10^15): the exponent must fit a Decimal
+	// before vmeAsDecimal
+	e := int64(-k)
+	if m%100000000 == 0 {
+		m, e = m/100000000, e+8
+	}
+	if m%10000 == 0 {
+		m, e = m/10000, e+4
+	}
+	if m%100 == 0 {
+		m, e = m/100, e+2
+	}
+	if m%10 == 0 {
+		m, e = m/10, e+1
+	}
+	if e < -16 {
+		return 0, false
+	}
+
+	return vmeAsDecimal(v, m, e), true
 }
 
 // NewFromFloat64Exact converts the binary value of a float64 to Decimal, rounded to the 57-bit mantissa
@@ -1164,6 +1274,11 @@ func NewFromFloat32(value float32) Decimal {
 // 0.01499999999999999944... as a float64, gives 0.01 at exp -2 (NewFromFloat(0.015).Round(2) gives 0.02).
 // Unlike shopspring it does not panic on NaN or ±Inf, it returns them.
 //
+// It is computed with exact integer arithmetic, on 128 bits, without text. When the rounded value
+// has more digits than a Decimal holds — more than 16 places, or a mantissa beyond 57 bits — the
+// exact value is rounded once, at the finest exponent a Decimal has for it, and the loss bit is
+// set. A value beyond the largest Decimal gives an infinity.
+//
 // Example:
 //
 //	NewFromFloatWithExponent(123.456, -2).String() // output: "123.46"
@@ -1175,8 +1290,12 @@ func NewFromFloatWithExponent(value float64, exp int32) Decimal {
 		return Zero
 	}
 
-	places := -int64(exp)
+	// |value| = mant × 2^e2, exactly
+	var v uint64
 	b := math.Float64bits(value)
+	if b&sign != 0 {
+		v = sign
+	}
 	mant := b & (1<<52 - 1)
 	e2 := int64((b >> 52) & 0x7ff)
 	if e2 == 0 {
@@ -1184,43 +1303,227 @@ func NewFromFloatWithExponent(value float64, exp int32) Decimal {
 	} else {
 		mant |= 1 << 52
 	}
-	e2 -= 1023 + 52 // |value| = mant * 2^e2
-	t := int64(bits.TrailingZeros64(mant))
+	e2 -= 1023 + 52
 
-	if places >= 0 {
-		// strconv rounds the exact binary value correctly, but an exact tie to even: a tie is
-		// |value| * 10^places * 2 being an odd integer, i.e. exactly places+1 binary fraction bits
-		if -e2-t == places+1 {
-			// the exact value ends with a 5 at places+1: drop it (truncation toward zero, at most
-			// one digit more than the result) and add one unit away from zero
-			s := strings.TrimSuffix(strconv.FormatFloat(value, 'f', int(places+1), 64), "5")
-			d, _ := NewFromString(strings.TrimSuffix(s, "."))
-			if value < 0 {
-				return d.Sub(New(1, exp))
-			}
-			return d.Add(New(1, exp))
+	// beyond the largest Decimal, (2^57-1) × 10^15 — between 2^106 and 2^107 — the value is an
+	// infinity, whatever the exponent asked
+	size := int64(bits.Len64(mant)) + e2 // 2^(size-1) <= |value| < 2^size
+	if size >= 107 {
+		maxhi, maxlo := bits.Mul64(MaxInt, tenPow[-decimalMinE-1])
+		hi, lo := floatShiftLeft(0, mant, uint(e2))
+		if size > 107 || hi > maxhi || hi == maxhi && lo > maxlo {
+			return vmeAsDecimal(v|loss, 0, math.MaxInt64)
 		}
-		d, _ := NewFromString(strconv.FormatFloat(value, 'f', int(places), 64))
-		return d
 	}
 
-	// rounding to tens and beyond: split |value| = I + f with I an integer and f in [0, 1) (both exact)
-	a := math.Abs(value)
-	if a >= 1<<63 || -places >= int64(len(tenPow)) {
-		// at least 19 integer digits, beyond the ~17 of the mantissa: no exact tie to care about
-		d, _ := NewFromString(strconv.FormatFloat(value, 'f', 0, 64))
-		return d.Round(int32(places))
+	// the value rounded at the asked exponent, as an integer N: it is the result when N × 10^exp is
+	// a Decimal, that is when N without its trailing zeros fits the mantissa, with at most 16 places
+	places := -int64(exp)
+	if places < -38 {
+		return Zero // |value| < 2^107 < 10^39/2
 	}
-	i := uint64(a)
-	p := tenPow[-places]
-	q, r := i/p, i%p
-	if r >= p/2 { // r + f >= p/2 as p/2 is an integer and f < 1: half away from zero
-		q++
+	rounded := false
+	if places <= floatMaxPlaces {
+		if hi, lo, _, ok := floatRoundScaled(mant, e2, places); ok {
+			if hi|lo == 0 {
+				return Zero
+			}
+			e := -places
+			for hi != 0 || lo > MaxInt || e < decimalMinE {
+				qhi, r := bits.Div64(0, hi, 10)
+				qlo, r := bits.Div64(r, lo, 10)
+				if r != 0 {
+					break
+				}
+				hi, lo, e = qhi, qlo, e+1
+			}
+			if hi == 0 && lo <= MaxInt && e >= decimalMinE {
+				return vmeAsDecimal(v, lo, e)
+			}
+			rounded = true
+		}
 	}
-	if value < 0 {
-		return New(-int64(q), -int32(places))
+
+	// more digits than a Decimal holds, either asked or because the value is large: the value is
+	// rounded once more, from its exact binary value and half away from zero, at the finest
+	// exponent a Decimal has for it — at most 16 places, and a mantissa that fits. The loss bit
+	// tells that digits of the asked rounding were dropped: always when that rounding was computed
+	// above; when it was out of reach (more than 27 places, or beyond 128 bits), only when it is
+	// not the same number as this one (floatSameRounding).
+	// 10^d <= 2^(size-1) <= |value|: starting from 17-d places, one too many at most is tried
+	p := 17 - ((size-1)*1233)>>12
+	if p > -decimalMinE {
+		p = -decimalMinE
 	}
-	return New(int64(q), -int32(places))
+	if p > places {
+		p = places
+	}
+	for {
+		hi, lo, inexact, ok := floatRoundScaled(mant, e2, p)
+		if !ok || hi != 0 || lo > MaxInt {
+			p--
+			continue
+		}
+		if rounded || inexact && (p < 0 || !floatSameRounding(mant, e2, p, places)) {
+			v |= loss
+		}
+		if lo == 0 {
+			// under half of the last place of a Decimal: zero when the asked rounding is zero too,
+			// else a near zero of its sign
+			if v&loss == 0 {
+				return Zero
+			}
+			return vmeAsDecimal(v, 0, math.MinInt64)
+		}
+		return vmeAsDecimal(v, lo, -p)
+	}
+}
+
+// floatSameRounding tells whether mant × 2^e2 rounds to the same number at places decimal places
+// as at p of them, 0 <= p < places, where it was rounded as N: the distance from the value to
+// N × 10^-p must be under half of 10^-places. Times 10^p, that distance is the fraction dropped by
+// floatRoundScaled, or its complement to 1 when N was rounded up.
+func floatSameRounding(mant uint64, e2, p, places int64) bool {
+	hi, lo := bits.Mul64(mant, floatPow5(p))
+	t := -(e2 + p) // bits dropped; not negative: the product was not an integer
+	if t > 128 {
+		return floatUnderHalf(hi, lo, -t, places-p) // N was zero
+	}
+	hi, lo = floatShiftLeft(hi, lo, uint(128-t)) // the fraction, times 2^128
+	if hi>>63 != 0 {
+		var borrow uint64
+		lo, borrow = bits.Sub64(0, lo, 0)
+		hi, _ = bits.Sub64(0, hi, borrow)
+	}
+	return floatUnderHalf(hi, lo, -128, places-p)
+}
+
+// floatUnderHalf tells whether x × 2^e2 is under half of 10^-places, x a non-zero 128-bit integer
+// and places at least 1: x × 5^places < 2^(-e2-1-places), an exact comparison of the bit length of
+// a product that takes up to 16 words. Past 344 places no x × 2^e2 met here is that small (the
+// smallest are a float64, at least 2^-1074, and a fraction of 128 bits).
+func floatUnderHalf(hi, lo uint64, e2, places int64) bool {
+	if places >= 344 {
+		return false
+	}
+
+	var p [16]uint64
+	p[0], p[1] = lo, hi
+	n := 2
+	for left := places; left > 0; left -= floatMaxPlaces {
+		m := floatPow5(floatMaxPlaces)
+		if left < floatMaxPlaces {
+			m = floatPow5(left)
+		}
+		var carry uint64
+		for i := 0; i < n; i++ {
+			h, l := bits.Mul64(p[i], m)
+			l, c := bits.Add64(l, carry, 0)
+			p[i], carry = l, h+c
+		}
+		p[n] = carry
+		n++
+	}
+	for p[n-1] == 0 {
+		n--
+	}
+
+	return int64(64*(n-1)+bits.Len64(p[n-1])) <= -e2-1-places
+}
+
+// floatPow5 gives 5^p, p from 0 to floatMaxPlaces, from the tenPow table: 10^p shifted by p bits,
+// or the product of two of them.
+func floatPow5(p int64) uint64 {
+	if last := int64(len(tenPow)) - 1; p > last {
+		return (tenPow[last] >> uint(last)) * (tenPow[p-last] >> uint(p-last))
+	}
+	return tenPow[p] >> uint(p)
+}
+
+// floatMaxPlaces is the largest power of five a uint64 holds: 5^27 < 2^64.
+const floatMaxPlaces = 27
+
+// floatRoundScaled gives round(mant × 2^e2 × 10^p), half away from zero, as a 128-bit integer, with
+// exact integer arithmetic: p goes from -38 to floatMaxPlaces, mant × 2^e2 is under 2^107. inexact
+// tells that the product was not an integer; ok is false when the result does not fit 128 bits.
+func floatRoundScaled(mant uint64, e2, p int64) (hi, lo uint64, inexact, ok bool) {
+	var up bool
+
+	if p >= 0 {
+		// 10^p = 5^p × 2^p: mant × 5^p fits 128 bits, the powers of two are a shift
+		hi, lo = bits.Mul64(mant, floatPow5(p))
+
+		shift := e2 + p
+		if shift >= 0 {
+			size := int64(bits.Len64(lo))
+			if hi != 0 {
+				size = 64 + int64(bits.Len64(hi))
+			}
+			if size+shift > 128 {
+				return 0, 0, false, false
+			}
+			hi, lo = floatShiftLeft(hi, lo, uint(shift))
+			return hi, lo, false, true
+		}
+
+		// dropping t bits: the highest one is the half, any of them makes the product inexact
+		t := uint64(-shift)
+		if t > 128 {
+			return 0, 0, true, true
+		}
+		dhi, dlo := floatShiftLeft(hi, lo, uint(128-t)) // the dropped bits, at the top
+		inexact = dhi|dlo != 0
+		up = dhi>>63 != 0
+		hi, lo = floatShiftRight(hi, lo, uint(t))
+	} else {
+		// the integer part of mant × 2^e2, and whether a fraction is left under it
+		var sticky bool
+		if e2 >= 0 {
+			hi, lo = floatShiftLeft(0, mant, uint(e2))
+		} else if t := uint(-e2); t < 64 {
+			lo, sticky = mant>>t, mant&(1<<t-1) != 0
+		} else {
+			sticky = true
+		}
+
+		// divided by 10^j, in two steps beyond 10^19; with r the remainder, the quotient is rounded
+		// up when r + fraction >= 10^j/2, that is r >= 10^j/2: 10^j/2 is an integer, the fraction
+		// is under 1
+		var r, r0 uint64
+		j, d := -p, tenPow[len(tenPow)-1]
+		if j >= int64(len(tenPow)) {
+			hi, r0 = bits.Div64(0, hi, d)
+			lo, r0 = bits.Div64(r0, lo, d)
+			j -= int64(len(tenPow)) - 1
+		}
+		d = tenPow[j]
+		hi, r = bits.Div64(0, hi, d)
+		lo, r = bits.Div64(r, lo, d)
+		inexact = sticky || r|r0 != 0
+		up = r >= d/2
+	}
+
+	if up {
+		var carry uint64
+		lo, carry = bits.Add64(lo, 1, 0)
+		hi += carry
+	}
+	return hi, lo, inexact, true
+}
+
+// floatShiftLeft and floatShiftRight shift a 128-bit integer by 0 to 128 bits.
+func floatShiftLeft(hi, lo uint64, n uint) (uint64, uint64) {
+	if n >= 64 {
+		return lo << (n - 64), 0
+	}
+	return hi<<n | lo>>(64-n), lo << n
+}
+
+func floatShiftRight(hi, lo uint64, n uint) (uint64, uint64) {
+	if n >= 64 {
+		return 0, hi >> (n - 64)
+	}
+	return hi >> n, lo>>n | hi<<(64-n)
 }
 
 // Sum returns the combined total of the provided first and rest Decimals

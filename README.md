@@ -104,9 +104,11 @@ The public API mirrors [shopspring/decimal](https://github.com/shopspring/decima
 
 **Rounding** matches shopspring on every entry point (`Round`, `StringFixed`, `DivRound`, `RoundCash`, `RoundBank`, `RoundUp`/`Down`/`Ceil`/`Floor`, `Truncate`), checked value by value against shopspring v1.4.0 and v1.6.0 by `bench/compare_round_test.go`: a half rounds away from zero, symmetrically, so `-2.5` rounds to `-3` and a credit note rounds like its invoice. Up to v1.0.2 a negative half rounded toward +∞ (`-2.5` → `-2`). Since v1.1.0, `Truncate` with a negative precision truncates the integer part like shopspring v1.5+ (`5432` → `5400` at `-2`; shopspring v1.4 and aytechnet v1.0.2 returned the value unchanged).
 
-`NewFromFloat` and `NewFromFloat32` follow shopspring since v1.1.0: they convert the **shortest decimal** that gives the same float back (`strconv.FormatFloat(f, 'g', -1, 64)`), so `NewFromFloat(-178464.49)` is exactly `-178464.49`. Up to v1.0.2 they converted the binary value with a precision bug from the 16th digit (`~-178464.49000000009`, 97 % of 2-3 decimal amounts differed). Checked against shopspring on 1,000,000 random floats by `bench/compare_round_test.go`; a value with more than 16 fractional digits is rounded to the 16 a `Decimal` holds (loss bit set). `NewFromFloat64Exact` still converts the binary value (correctly rounded to the mantissa since v1.1.0, `~-178464.48999999999`): the math functions use it.
+`NewFromFloat` and `NewFromFloat32` follow shopspring since v1.1.0: they convert the **shortest decimal** that gives the same float back (`strconv.FormatFloat(f, 'g', -1, 64)`), so `NewFromFloat(-178464.49)` is exactly `-178464.49`. Up to v1.0.2 they converted the binary value with a precision bug from the 16th digit (`~-178464.49000000009`, 97 % of 2-3 decimal amounts differed). Checked against shopspring on 1,000,000 random floats by `bench/compare_round_test.go`; a value with more than 16 fractional digits is rounded to the 16 a `Decimal` holds (loss bit set). Since v1.2.0 the conversion uses no text: a value of at most 15 significant digits (an amount, a rate, a weight) is found by one multiplication and one division, any other by the Schubfach algorithm on the binary fields of the float (`shortest.go`, built on the powers of ten the package already had, no added table). The results are those of `strconv`, the reference of the tests: every `float32` (4.28 billion) and 275 million `float64` were compared, without a difference; it is 3 to 6 times faster than v1.1.0. `NewFromFloat64Exact` still converts the binary value (correctly rounded to the mantissa since v1.1.0, `~-178464.48999999999`): the math functions use it.
 
 `NewFromFloatWithExponent(value, exp)` follows shopspring since v1.1.0: `exp` is an **exponent** (`-2` keeps 2 decimal places; up to v1.0.2 it was a number of places, `2`), and the exact binary value of the float is rounded half away from zero, so `NewFromFloatWithExponent(0.015, -2)` is `0.01` (0.015 is 0.01499999… as a `float64`). It is checked against shopspring v1.4.0 and v1.6.0 on 200,000 random floats by `bench/compare_round_test.go`, to within one unit of the 17th significant digit. Unlike shopspring it returns `NaN`/`±Inf` instead of panicking.
+
+Since v1.2.0 `NewFromFloatWithExponent` is computed with exact integer arithmetic on 128 bits, without text and without allocation (4 to 20 times faster). When the rounded value is a `Decimal`, it is returned, exact. When it has more digits than a `Decimal` holds — more than 16 places, or a mantissa beyond 57 bits — the exact binary value is rounded **once**, half away from zero, at the finest exponent a `Decimal` has for it, and the loss bit is set; a value beyond the largest `Decimal` gives an infinity. v1.1.0 went through a decimal string that was cut at 19 digits and then rounded again, twice at times: in that case the last digit could be one off (`NewFromFloatWithExponent(8071830.16, -14)` gave `~8071830.1600000002` for `…0001|49`), the loss bit could be missing (`NewFromFloatWithExponent(1e25, 2)` is now `~10000000000000000900000000`: the digits `5969700` are dropped) and the mantissa could keep a trailing zero. The tests check it against `math/big` on random floats and exponents.
 
 ### `Ln` signature is intentionally NOT compatible
 
@@ -156,7 +158,7 @@ All figures: vs [shopspring/decimal](https://github.com/shopspring/decimal) v1.6
 | Category | Speedup range | aytechnet allocs | Notes |
 |---|---|---|---:|
 | Fractional arithmetic (`Add`/`Mul`/`Div`/`Pow`) | **4×–19×** | 0 | `Div` 19×, `Mul` 4× |
-| Conversion (`NewFromString`/`Float`/`String`) | **1.3×–2×** | 0–1 | shortest-decimal `NewFromFloat` 1.3× |
+| Conversion (`NewFromString`/`Float`/`String`) | **2×–5×** | 0–1 | shortest-decimal `NewFromFloat` 5× |
 | Pure-integer arithmetic | **11×–26×** | 0 | shopspring allocates `big.Int` |
 | Integer construction (`NewFromInt`/`Int32`) | **17×–~50×** | 0 | `Int32` near measurement floor |
 | Running sum `Σ i` (convert + add) | **~19×** | 0 | true data dependency, most defensible |
@@ -174,7 +176,7 @@ Comparison against [shopspring/decimal](https://github.com/shopspring/decimal) v
 | `Div` | 8.3 ns/op | 161 ns/op | **19×** | 0 | 8 (232 B) |
 | `Pow(1.1, 60)` | 39 ns/op | 217 ns/op | **6×** | 0 | 7 (224 B) |
 | `NewFromString` | 37 ns/op | 81 ns/op | **2×** | 0 | 2 (40 B) |
-| `NewFromFloat` | 52 ns/op | 65 ns/op | **1.3×** | 0 | 2 (40 B) |
+| `NewFromFloat` | 13 ns/op | 65 ns/op | **5×** | 0 | 2 (40 B) |
 | `String` | 54 ns/op | 106 ns/op | **2×** | 1 (24 B) | 2 (32 B) |
 
 Reproduce: `cd bench && go test -bench=. -benchmem`. The `bench/` sub-module has its own `go.mod` so the main package keeps zero external dependencies.
