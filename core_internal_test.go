@@ -204,9 +204,9 @@ func TestVmeDivRemMagic2NaNPaths(t *testing.T) {
 	if v, _, e, _, _ := vmeDivRemMagic2(loss, 0, math.MaxInt64, loss, math.MaxInt64); v&loss == 0 || e != 1 {
 		t.Errorf(`+Inf / ±Inf should be NaN, got (%x, _, %d)`, v, e)
 	}
-	// d1 == 0 (no loss), d2 == ±Inf → ~0
-	if v, _, e, _, _ := vmeDivRemMagic2(0, 0, 0, loss, math.MaxInt64); v != (sign|loss) || e != 0 {
-		t.Errorf(`0 / ±Inf should be ~0, got (%x, _, %d)`, v, e)
+	// d1 == 0 (no loss), d2 == ±Inf → 0, exact: a zero absorbs
+	if v, _, e, _, _ := vmeDivRemMagic2(0, 0, 0, loss, math.MaxInt64); v != sign || e != 0 {
+		t.Errorf(`0 / ±Inf should be 0, got (%x, _, %d)`, v, e)
 	}
 	// d1 == ordinary, d2 == ±Inf → ~+0
 	if v, _, e, _, _ := vmeDivRemMagic2(0, 1, 0, loss, math.MaxInt64); v&loss == 0 || e != math.MinInt64 {

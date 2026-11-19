@@ -892,8 +892,8 @@ func vmeDivRemMagic2(v1, m1 uint64, e1 int64, v2 uint64, e2 int64) (v, m uint64,
 				} else if e1 == math.MaxInt64 { // d1 is +Inf or -Inf result if +Inf or -Inf
 					return loss, 0, 1, 0, 0 // return NaN and remainder 0
 				}
-			} else { // d1 is 0 or null
-				return sign | loss, 0, 0, 0, 0 // return ~0 and remainder 0
+			} else { // d1 is 0 or null: an exact zero absorbs, as it does divided by any other number
+				return sign, 0, 0, 0, 0 // return 0 and remainder 0
 			}
 		} else { // d1 is an ordinary decimal not near 0
 			return loss | (v1^v2)&sign, 0, math.MinInt64, 0, 0 // return ~+0 or ~-0 and remainder 0

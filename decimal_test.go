@@ -3991,7 +3991,9 @@ func BenchmarkDecimalNewFromFloat17Digits(b *testing.B) {
 // a NaN gives a NaN; an exact zero has no sign, so a division by it, and its product by an
 // infinity, have no limit: NaN, where a float64 gives ±Inf and NaN (its zero is signed); a near
 // zero with a sign is the float64 zero: a division by it gives the infinity of the sign of the
-// quotient, its product by an infinity is NaN; Null is a zero.
+// quotient, its product by an infinity is NaN; Null is a zero. An exact zero absorbs: times or
+// divided by any number, even an inexact one or an infinity, it is exactly zero — but times an
+// infinity, which has no limit.
 func TestSpecialValuesArithmetic(t *testing.T) {
 	names := []string{"Null", "0", "~0", "+~0", "-~0", "2", "-2", "+Inf", "-Inf", "NaN"}
 	values := []Decimal{Null, Zero, NearZero, NearPositiveZero, NearNegativeZero, 2, -2, PositiveInfinity, NegativeInfinity, NaN}
@@ -4014,8 +4016,8 @@ func TestSpecialValuesArithmetic(t *testing.T) {
 			{"NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN"},
 		}},
 		{"Div", Decimal.Div, [][]string{
-			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "~0", "~0", "NaN"},
-			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "~0", "~0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "0", "0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "0", "0", "NaN"},
 			{"NaN", "NaN", "NaN", "NaN", "NaN", "~0", "~0", "~0", "~0", "NaN"},
 			{"NaN", "NaN", "NaN", "NaN", "NaN", "+~0", "-~0", "+~0", "-~0", "NaN"},
 			{"NaN", "NaN", "NaN", "NaN", "NaN", "-~0", "+~0", "-~0", "+~0", "NaN"},
@@ -4053,6 +4055,10 @@ func TestSpecialValuesArithmetic(t *testing.T) {
 		for i, a := range values {
 			for j, b := range values {
 				got := op.f(a, b)
+				// "0" is the exact zero — or Null, for Null and Null — never a near zero
+				if (got == Zero || got == Null) != (op.want[i][j] == "0") {
+					t.Errorf("(%s).%s(%s) = %v (exact %v): an exact zero is expected for 0 and for nothing else", names[i], op.name, names[j], got, got.IsExact())
+				}
 				if got.String() != op.want[i][j] {
 					t.Errorf("(%s).%s(%s) = %v, want %s", names[i], op.name, names[j], got, op.want[i][j])
 				}
@@ -4069,12 +4075,20 @@ func TestSpecialValuesArithmetic(t *testing.T) {
 	w2, _ := NewWeightFromString("2g")
 	l0, _ := NewLength(0, 0, "m")
 	l2, _ := NewLengthFromString("2cm")
+	inexact, _ := NewFromString("~2")
+	for name, d := range map[string]Decimal{"0*~2": Zero.Mul(inexact), "~2*0": inexact.Mul(Zero), "0/~2": Zero.Div(inexact), "Null/~2": Decimal(Null).Div(inexact), "Null/-Inf": Decimal(Null).Div(NegativeInfinity)} {
+		if d != Zero {
+			t.Errorf("%s = %v, want an exact 0", name, d)
+		}
+	}
 	for want, got := range map[string]string{
 		"NaN w0*Inf": w0.Mul(PositiveInfinity).String() + " w0*Inf", "NaN w0*NaN": w0.Mul(NaN).String() + " w0*NaN",
 		"+Inf w2*Inf": w2.Mul(PositiveInfinity).String() + " w2*Inf", "NaN w2/0": w2.Div(Zero).String() + " w2/0",
 		"+Inf w2/+~0": w2.Div(NearPositiveZero).String() + " w2/+~0", "-Inf w2/-~0": w2.Div(NearNegativeZero).String() + " w2/-~0",
 		"NaN l0*Inf": l0.Mul(NegativeInfinity).String() + " l0*Inf", "NaN l0*NaN": l0.Mul(NaN).String() + " l0*NaN",
 		"-Inf l2*-Inf": l2.Mul(NegativeInfinity).String() + " l2*-Inf", "NaN l2/0": l2.Div(Zero).String() + " l2/0",
+		"0kg w0/Inf": w0.Div(PositiveInfinity).String() + " w0/Inf", "0m l0/-Inf": l0.Div(NegativeInfinity).String() + " l0/-Inf",
+		"0kg w0*~2": w0.Mul(inexact).String() + " w0*~2", "0kg w0/~2": w0.Div(inexact).String() + " w0/~2",
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
