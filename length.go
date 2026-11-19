@@ -306,10 +306,20 @@ func (l Length) BytesTo(b []byte) []byte {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
+//
+// A Length is always written as a JSON string carrying its unit ("11cm", "0.25m"): a number
+// followed by a unit is not a JSON value. UnmarshalJSON reads that string back, and still accepts
+// a bare number, taken in the default unit (m). Infinity and not-a-number have no unit: they are
+// written "+Inf", "-Inf" and "NaN", as a Decimal does.
 func (l Length) MarshalJSON() ([]byte, error) {
 	v, m, e, t := l.vmet()
 
-	return vmetBytesTo(nil, v, m, e, 0, t, false, false), nil
+	// infinity and not-a-number have no unit and are written as a Decimal writes them
+	if m == 0 && v&loss != 0 && e != 0 {
+		return vmetBytesTo(nil, v, m, e, 0, nil, false, false), nil
+	}
+
+	return vmetBytesTo(nil, v, m, e, 0, t, false, true), nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.

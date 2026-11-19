@@ -89,15 +89,18 @@ func TestVmetBytesToQuoted(t *testing.T) {
 }
 
 func TestVeMagicBytesToCompact(t *testing.T) {
-	// ext=false → JSON-friendly output: "0" for ~0 and ±~0; "null" for NaN and ±Inf
+	// ext=false → JSON output: 0 for ~0 and ±~0; the strings "+Inf", "-Inf" and "NaN" for ±Inf and NaN
 	if s := string(veMagicBytesTo(nil, sign|loss, 0, false)); s != "0" {
 		t.Errorf(`veMagicBytesTo ext=false on ~0 should be "0", got %q`, s)
 	}
-	if s := string(veMagicBytesTo(nil, loss, math.MaxInt64, false)); s != "null" {
-		t.Errorf(`veMagicBytesTo ext=false on +Inf should be "null", got %q`, s)
+	if s := string(veMagicBytesTo(nil, loss, math.MaxInt64, false)); s != `"+Inf"` {
+		t.Errorf(`veMagicBytesTo ext=false on +Inf should be "+Inf" quoted, got %q`, s)
 	}
-	if s := string(veMagicBytesTo(nil, loss, 1, false)); s != "null" {
-		t.Errorf(`veMagicBytesTo ext=false on NaN should be "null", got %q`, s)
+	if s := string(veMagicBytesTo(nil, sign|loss, math.MaxInt64, false)); s != `"-Inf"` {
+		t.Errorf(`veMagicBytesTo ext=false on -Inf should be "-Inf" quoted, got %q`, s)
+	}
+	if s := string(veMagicBytesTo(nil, loss, 1, false)); s != `"NaN"` {
+		t.Errorf(`veMagicBytesTo ext=false on NaN should be "NaN" quoted, got %q`, s)
 	}
 	if s := string(veMagicBytesTo(nil, loss, math.MinInt64, false)); s != "0" {
 		t.Errorf(`veMagicBytesTo ext=false on +~0 should be "0", got %q`, s)

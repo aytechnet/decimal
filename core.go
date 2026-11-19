@@ -451,7 +451,7 @@ func vmeUnitOrMagicFromBytes(b []byte, v, m uint64, e int64, units []unit) (uint
 			case 7292483, 1874960827: // nil, null
 				return 0, 0, 0, nil
 
-			case 6963517: // inf
+			case 6963517, 7807181617369163882: // inf, infinity
 				return v | loss, 0, math.MaxInt64, nil
 			}
 		}
@@ -549,7 +549,8 @@ func vmetBytesTo(b []byte, v, m uint64, e int64, places int32, t *unit, ext, str
 }
 
 // veMagicBytes appends decimal representation of a VME magic tuple to b
-// ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number
+// ext is a boolean value to allow extended output (~ if loss), Inf for Infinite and NaN for not-a-number;
+// without it the output is the JSON one, where infinity and not-a-number are quoted strings
 func veMagicBytesTo(b []byte, v uint64, e int64, ext bool) []byte {
 	if ext {
 		if e == math.MaxInt64 {
@@ -572,10 +573,19 @@ func veMagicBytesTo(b []byte, v uint64, e int64, ext bool) []byte {
 			b = append(b, '~', '0')
 		}
 	} else {
+		// JSON output: a near zero is 0; infinity and not-a-number are not JSON numbers, they are
+		// written as the strings "+Inf", "-Inf" and "NaN" (the spelling of String and of strconv),
+		// which are read back as such — a JSON null is read as Null, never as one of them
 		if e == 0 || e == math.MinInt64 {
 			b = append(b, '0')
+		} else if e == math.MaxInt64 {
+			if v&sign != 0 {
+				b = append(b, '"', '-', 'I', 'n', 'f', '"')
+			} else {
+				b = append(b, '"', '+', 'I', 'n', 'f', '"')
+			}
 		} else {
-			b = append(b, 'n', 'u', 'l', 'l')
+			b = append(b, '"', 'N', 'a', 'N', '"')
 		}
 	}
 

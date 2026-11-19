@@ -1,6 +1,7 @@
 package decimal
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -174,8 +175,8 @@ func TestWeightJSONMarshaling(t *testing.T) {
 
 	if b, err := w.MarshalJSON(); err != nil {
 		t.Errorf(`(%v).MarshalJSON() should be ok, error = %v`, w, err)
-	} else if string(b) != `11lb` {
-		t.Errorf(`(%v).MarshalJSON() should be '11lb', buff = '%s'`, w, b)
+	} else if string(b) != `"11lb"` {
+		t.Errorf(`(%v).MarshalJSON() should be '"11lb"', buff = '%s'`, w, b)
 	}
 
 	w1, _ := NewWeightFromString("42g")
@@ -416,5 +417,102 @@ func TestWeightUnmarshalErrors(t *testing.T) {
 	}
 	if err := w.UnmarshalText([]byte("not-a-weight")); err == nil {
 		t.Errorf(`UnmarshalText("not-a-weight") should error`)
+	}
+}
+
+// TestWeightJSONEncoding goes through encoding/json, as a caller does: a Weight must be a valid JSON
+// value in every unit and in every position (field, omitempty field, pointer, slice, map), and
+// must read back equal. Calling MarshalJSON directly does not see an invalid output.
+func TestWeightJSONEncoding(t *testing.T) {
+	for _, tu := range weightUnits {
+		for _, n := range []string{"0", "1", "-2.5", "0.001", "1234567.89"} {
+			in := n + tu.u
+			w, err := NewWeightFromString(in)
+			if err != nil {
+				t.Errorf(`NewWeightFromString(%q) error = %v`, in, err)
+				continue
+			}
+
+			b, err := json.Marshal(w)
+			if err != nil {
+				t.Errorf(`json.Marshal(%v) error = %v`, w, err)
+				continue
+			}
+			if !json.Valid(b) || len(b) < 2 || b[0] != '"' || b[len(b)-1] != '"' {
+				t.Errorf(`json.Marshal(%v) should be a JSON string, buff = '%s'`, w, b)
+			}
+			if want := `"` + w.String() + `"`; string(b) != want {
+				t.Errorf(`json.Marshal(%v) should be '%s', buff = '%s'`, w, want, b)
+			}
+
+			var back Weight
+			if err := json.Unmarshal(b, &back); err != nil {
+				t.Errorf(`json.Unmarshal(%s) error = %v`, b, err)
+			} else if back != w {
+				t.Errorf(`json.Unmarshal(%s) should be %v, got %v`, b, w, back)
+			}
+		}
+	}
+
+	type doc struct {
+		Set  Weight            `json:"set"`
+		Opt  Weight            `json:"opt,omitempty"`
+		Ptr  *Weight           `json:"ptr"`
+		List []Weight          `json:"list"`
+		Map  map[string]Weight `json:"map"`
+	}
+	x, _ := NewWeightFromString("11lb")
+	y, _ := NewWeightFromString("0.25")
+	zero, _ := NewWeight(0, 0, "kg")
+
+	in := doc{Set: x, Ptr: &y, List: []Weight{x, y, zero}, Map: map[string]Weight{"k": x}}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf(`json.Marshal(doc) error = %v`, err)
+	}
+	if want := `{"set":"11lb","ptr":"0.25kg","list":["11lb","0.25kg","0kg"],"map":{"k":"11lb"}}`; string(b) != want {
+		t.Errorf("json.Marshal(doc) should be\n%s\ngot\n%s", want, b)
+	}
+
+	var out doc
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf(`json.Unmarshal(doc) error = %v`, err)
+	}
+	if out.Set != x || !out.Opt.IsNull() || out.Ptr == nil || *out.Ptr != y || len(out.List) != 3 || out.List[2] != zero || out.Map["k"] != x {
+		t.Errorf(`doc should read back as written, got %+v`, out)
+	}
+
+	// a Null Weight is left out by omitempty, and is a valid JSON string without it
+	if b, err := json.Marshal(struct {
+		A Weight `json:"a"`
+		B Weight `json:"b,omitempty"`
+	}{}); err != nil || string(b) != `{"a":"0kg"}` {
+		t.Errorf(`json.Marshal(null Weight) should be '{"a":"0kg"}', buff = '%s', error = %v`, b, err)
+	}
+
+	// infinity and not-a-number have no unit: "+Inf", "-Inf" and "NaN", read back as such
+	inf, _ := NewWeightFromString("+Inf")
+	ninf, _ := NewWeightFromString("-Infinity")
+	nan := x.Div(Zero)
+	if !inf.IsInfinite() || !inf.IsPositive() || !ninf.IsInfinite() || !ninf.IsNegative() || !nan.IsNaN() {
+		t.Errorf(`+Inf, -Infinity and x/0 should be +Inf, -Inf and NaN, got %v, %v and %v`, inf, ninf, nan)
+	}
+	for want, magic := range map[string]Weight{`"+Inf"`: inf, `"-Inf"`: ninf, `"NaN"`: nan} {
+		b, err := json.Marshal(magic)
+		if err != nil || string(b) != want {
+			t.Errorf(`json.Marshal(%v) should be '%s', buff = '%s', error = %v`, magic, want, b, err)
+		}
+		var back Weight
+		if err := json.Unmarshal(b, &back); err != nil || back.IsNaN() != magic.IsNaN() || back.IsInfinite() != magic.IsInfinite() || back.Sign() != magic.Sign() {
+			t.Errorf(`json.Unmarshal(%s) should be %v, got %v, error = %v`, b, magic, back, err)
+		}
+	}
+
+	// what was accepted before is still read: a bare number is in the default unit
+	for src, want := range map[string]string{`{"set":0.25}`: "0.25kg", `{"set":"0.25"}`: "0.25kg", `{"set":"250 lb"}`: "250lb", `{"set":null}`: "0kg"} {
+		var d doc
+		if err := json.Unmarshal([]byte(src), &d); err != nil || d.Set.String() != want {
+			t.Errorf(`json.Unmarshal(%s) should give %s, got %v, error = %v`, src, want, d.Set, err)
+		}
 	}
 }

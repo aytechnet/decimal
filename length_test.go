@@ -1,6 +1,7 @@
 package decimal
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -163,8 +164,8 @@ func TestLengthJSONMarshaling(t *testing.T) {
 
 	if b, err := l.MarshalJSON(); err != nil {
 		t.Errorf(`(%v).MarshalJSON() should be ok, error = %v`, l, err)
-	} else if string(b) != `11cm` {
-		t.Errorf(`(%v).MarshalJSON() should be '11cm', buff = '%s'`, l, b)
+	} else if string(b) != `"11cm"` {
+		t.Errorf(`(%v).MarshalJSON() should be '"11cm"', buff = '%s'`, l, b)
 	}
 
 	l1, _ := NewLengthFromString("42mm")
@@ -439,5 +440,102 @@ func TestLengthNaN(t *testing.T) {
 	var null Length
 	if null.IsNaN() {
 		t.Errorf(`Null should not be NaN`)
+	}
+}
+
+// TestLengthJSONEncoding goes through encoding/json, as a caller does: a Length must be a valid JSON
+// value in every unit and in every position (field, omitempty field, pointer, slice, map), and
+// must read back equal. Calling MarshalJSON directly does not see an invalid output.
+func TestLengthJSONEncoding(t *testing.T) {
+	for _, tu := range lengthUnits {
+		for _, n := range []string{"0", "1", "-2.5", "0.001", "1234567.89"} {
+			in := n + tu.u
+			l, err := NewLengthFromString(in)
+			if err != nil {
+				t.Errorf(`NewLengthFromString(%q) error = %v`, in, err)
+				continue
+			}
+
+			b, err := json.Marshal(l)
+			if err != nil {
+				t.Errorf(`json.Marshal(%v) error = %v`, l, err)
+				continue
+			}
+			if !json.Valid(b) || len(b) < 2 || b[0] != '"' || b[len(b)-1] != '"' {
+				t.Errorf(`json.Marshal(%v) should be a JSON string, buff = '%s'`, l, b)
+			}
+			if want := `"` + l.String() + `"`; string(b) != want {
+				t.Errorf(`json.Marshal(%v) should be '%s', buff = '%s'`, l, want, b)
+			}
+
+			var back Length
+			if err := json.Unmarshal(b, &back); err != nil {
+				t.Errorf(`json.Unmarshal(%s) error = %v`, b, err)
+			} else if back != l {
+				t.Errorf(`json.Unmarshal(%s) should be %v, got %v`, b, l, back)
+			}
+		}
+	}
+
+	type doc struct {
+		Set  Length            `json:"set"`
+		Opt  Length            `json:"opt,omitempty"`
+		Ptr  *Length           `json:"ptr"`
+		List []Length          `json:"list"`
+		Map  map[string]Length `json:"map"`
+	}
+	x, _ := NewLengthFromString("11cm")
+	y, _ := NewLengthFromString("0.25")
+	zero, _ := NewLength(0, 0, "m")
+
+	in := doc{Set: x, Ptr: &y, List: []Length{x, y, zero}, Map: map[string]Length{"k": x}}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf(`json.Marshal(doc) error = %v`, err)
+	}
+	if want := `{"set":"11cm","ptr":"0.25m","list":["11cm","0.25m","0m"],"map":{"k":"11cm"}}`; string(b) != want {
+		t.Errorf("json.Marshal(doc) should be\n%s\ngot\n%s", want, b)
+	}
+
+	var out doc
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf(`json.Unmarshal(doc) error = %v`, err)
+	}
+	if out.Set != x || !out.Opt.IsNull() || out.Ptr == nil || *out.Ptr != y || len(out.List) != 3 || out.List[2] != zero || out.Map["k"] != x {
+		t.Errorf(`doc should read back as written, got %+v`, out)
+	}
+
+	// a Null Length is left out by omitempty, and is a valid JSON string without it
+	if b, err := json.Marshal(struct {
+		A Length `json:"a"`
+		B Length `json:"b,omitempty"`
+	}{}); err != nil || string(b) != `{"a":"0m"}` {
+		t.Errorf(`json.Marshal(null Length) should be '{"a":"0m"}', buff = '%s', error = %v`, b, err)
+	}
+
+	// infinity and not-a-number have no unit: "+Inf", "-Inf" and "NaN", read back as such
+	inf, _ := NewLengthFromString("+Inf")
+	ninf, _ := NewLengthFromString("-Infinity")
+	nan := x.Div(Zero)
+	if !inf.IsInfinite() || !inf.IsPositive() || !ninf.IsInfinite() || !ninf.IsNegative() || !nan.IsNaN() {
+		t.Errorf(`+Inf, -Infinity and x/0 should be +Inf, -Inf and NaN, got %v, %v and %v`, inf, ninf, nan)
+	}
+	for want, magic := range map[string]Length{`"+Inf"`: inf, `"-Inf"`: ninf, `"NaN"`: nan} {
+		b, err := json.Marshal(magic)
+		if err != nil || string(b) != want {
+			t.Errorf(`json.Marshal(%v) should be '%s', buff = '%s', error = %v`, magic, want, b, err)
+		}
+		var back Length
+		if err := json.Unmarshal(b, &back); err != nil || back.IsNaN() != magic.IsNaN() || back.IsInfinite() != magic.IsInfinite() || back.Sign() != magic.Sign() {
+			t.Errorf(`json.Unmarshal(%s) should be %v, got %v, error = %v`, b, magic, back, err)
+		}
+	}
+
+	// what was accepted before is still read: a bare number is in the default unit
+	for src, want := range map[string]string{`{"set":0.25}`: "0.25m", `{"set":"0.25"}`: "0.25m", `{"set":"250 cm"}`: "250cm", `{"set":null}`: "0m"} {
+		var d doc
+		if err := json.Unmarshal([]byte(src), &d); err != nil || d.Set.String() != want {
+			t.Errorf(`json.Unmarshal(%s) should give %s, got %v, error = %v`, src, want, d.Set, err)
+		}
 	}
 }

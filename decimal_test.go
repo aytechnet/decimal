@@ -3,10 +3,12 @@ package decimal
 import (
 	"testing"
 
+	"encoding/json"
 	"log"
 	"math"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 func TestDoc(t *testing.T) {
@@ -3610,5 +3612,67 @@ func TestNewFromFloat64ExactEdges(t *testing.T) {
 		if got := c.d.String(); got != c.want {
 			t.Errorf("got %s, want %s", got, c.want)
 		}
+	}
+}
+
+// TestDecimalJSONMagic goes through encoding/json: infinity and not-a-number are not JSON numbers,
+// they are written as the strings "+Inf", "-Inf" and "NaN" and read back as such. A JSON null is read
+// as Null; Null itself is written 0 when omitempty does not leave it out.
+func TestDecimalJSONMagic(t *testing.T) {
+	nan := Zero.Div(Zero)
+
+	for want, d := range map[string]Decimal{`"+Inf"`: PositiveInfinity, `"-Inf"`: NegativeInfinity, `"NaN"`: nan, `0`: NearZero} {
+		b, err := json.Marshal(d)
+		if err != nil || !json.Valid(b) || string(b) != want {
+			t.Errorf(`json.Marshal(%v) should be '%s', buff = '%s', error = %v`, d, want, b, err)
+		}
+	}
+
+	type doc struct {
+		A Decimal   `json:"a"`
+		B Decimal   `json:"b,omitempty"`
+		C Decimal   `json:"c,omitempty"`
+		L []Decimal `json:"l"`
+	}
+	if b, err := json.Marshal(Null); err != nil || string(b) != `0` {
+		t.Errorf(`json.Marshal(Null) should be '0', buff = '%s', error = %v`, b, err)
+	}
+	in := doc{A: PositiveInfinity, B: nan, L: []Decimal{NegativeInfinity, New(125, -1)}}
+	b, err := json.Marshal(in)
+	if err != nil || string(b) != `{"a":"+Inf","b":"NaN","l":["-Inf",12.5]}` {
+		t.Errorf(`json.Marshal(doc) should be '{"a":"+Inf","b":"NaN","l":["-Inf",12.5]}', buff = '%s', error = %v`, b, err)
+	}
+	var out doc
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf(`json.Unmarshal(doc) error = %v`, err)
+	}
+	if out.A != PositiveInfinity || !out.B.IsNaN() || !out.C.IsNull() || len(out.L) != 2 || out.L[0] != NegativeInfinity || out.L[1] != New(125, -1) {
+		t.Errorf(`doc should read back as written, got %+v`, out)
+	}
+
+	// every usual spelling of infinity is read, in a string and whatever its case
+	for src, want := range map[string]Decimal{
+		`"Inf"`: PositiveInfinity, `"+Inf"`: PositiveInfinity, `"-Inf"`: NegativeInfinity, `"inf"`: PositiveInfinity,
+		`"Infinity"`: PositiveInfinity, `"+Infinity"`: PositiveInfinity, `"-Infinity"`: NegativeInfinity, `"-INFINITY"`: NegativeInfinity,
+	} {
+		var d Decimal
+		if err := json.Unmarshal([]byte(src), &d); err != nil || d != want {
+			t.Errorf(`json.Unmarshal(%s) should be %v, got %v, error = %v`, src, want, d, err)
+		}
+		if d, err := NewFromString(strings.Trim(src, `"`)); err != nil || d != want {
+			t.Errorf(`NewFromString(%s) should be %v, got %v, error = %v`, src, want, d, err)
+		}
+	}
+	for _, src := range []string{`"nan"`, `"NaN"`, `"NAN"`} {
+		var d Decimal
+		if err := json.Unmarshal([]byte(src), &d); err != nil || !d.IsNaN() {
+			t.Errorf(`json.Unmarshal(%s) should be NaN, got %v, error = %v`, src, d, err)
+		}
+	}
+
+	// a JSON null leaves the decimal unset
+	var d Decimal
+	if err := json.Unmarshal([]byte(`null`), &d); err != nil || !d.IsNull() {
+		t.Errorf(`json.Unmarshal(null) should be Null, got %v, error = %v`, d, err)
 	}
 }
