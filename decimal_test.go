@@ -3986,3 +3986,98 @@ func BenchmarkDecimalNewFromFloat17Digits(b *testing.B) {
 		f = -f
 	}
 }
+
+// TestSpecialValuesArithmetic pins the four operations on every pair of special values. The rules:
+// a NaN gives a NaN; an exact zero has no sign, so a division by it, and its product by an
+// infinity, have no limit: NaN, where a float64 gives ±Inf and NaN (its zero is signed); a near
+// zero with a sign is the float64 zero: a division by it gives the infinity of the sign of the
+// quotient, its product by an infinity is NaN; Null is a zero.
+func TestSpecialValuesArithmetic(t *testing.T) {
+	names := []string{"Null", "0", "~0", "+~0", "-~0", "2", "-2", "+Inf", "-Inf", "NaN"}
+	values := []Decimal{Null, Zero, NearZero, NearPositiveZero, NearNegativeZero, 2, -2, PositiveInfinity, NegativeInfinity, NaN}
+
+	for _, op := range []struct {
+		name string
+		f    func(a, b Decimal) Decimal
+		want [][]string // want[i][j] = values[i] op values[j]
+	}{
+		{"Mul", Decimal.Mul, [][]string{
+			{"0", "0", "0", "0", "0", "0", "0", "NaN", "NaN", "NaN"},
+			{"0", "0", "0", "0", "0", "0", "0", "NaN", "NaN", "NaN"},
+			{"0", "0", "~0", "~0", "~0", "~0", "~0", "NaN", "NaN", "NaN"},
+			{"0", "0", "~0", "+~0", "-~0", "+~0", "-~0", "NaN", "NaN", "NaN"},
+			{"0", "0", "~0", "-~0", "+~0", "-~0", "+~0", "NaN", "NaN", "NaN"},
+			{"0", "0", "~0", "+~0", "-~0", "4", "-4", "+Inf", "-Inf", "NaN"},
+			{"0", "0", "~0", "-~0", "+~0", "-4", "4", "-Inf", "+Inf", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "+Inf", "-Inf", "+Inf", "-Inf", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "-Inf", "+Inf", "-Inf", "+Inf", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN"},
+		}},
+		{"Div", Decimal.Div, [][]string{
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "~0", "~0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "0", "0", "~0", "~0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "~0", "~0", "~0", "~0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "+~0", "-~0", "+~0", "-~0", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "-~0", "+~0", "-~0", "+~0", "NaN"},
+			{"NaN", "NaN", "NaN", "+Inf", "-Inf", "1", "-1", "+~0", "-~0", "NaN"},
+			{"NaN", "NaN", "NaN", "-Inf", "+Inf", "-1", "1", "-~0", "+~0", "NaN"},
+			{"NaN", "NaN", "NaN", "+Inf", "-Inf", "+Inf", "-Inf", "NaN", "NaN", "NaN"},
+			{"NaN", "NaN", "NaN", "-Inf", "+Inf", "-Inf", "+Inf", "NaN", "NaN", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN"},
+		}},
+		{"Add", Decimal.Add, [][]string{
+			{"0", "0", "~0", "+~0", "-~0", "2", "-2", "+Inf", "-Inf", "NaN"},
+			{"0", "0", "~0", "+~0", "-~0", "2", "-2", "+Inf", "-Inf", "NaN"},
+			{"~0", "~0", "~0", "~0", "~0", "~2", "~-2", "+Inf", "-Inf", "NaN"},
+			{"+~0", "+~0", "~0", "+~0", "~0", "~2", "~-2", "+Inf", "-Inf", "NaN"},
+			{"-~0", "-~0", "~0", "~0", "-~0", "~2", "~-2", "+Inf", "-Inf", "NaN"},
+			{"2", "2", "~2", "~2", "~2", "4", "0", "+Inf", "-Inf", "NaN"},
+			{"-2", "-2", "~-2", "~-2", "~-2", "0", "-4", "+Inf", "-Inf", "NaN"},
+			{"+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "NaN", "NaN"},
+			{"-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "NaN", "-Inf", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN"},
+		}},
+		{"Sub", Decimal.Sub, [][]string{
+			{"0", "0", "~0", "-~0", "+~0", "-2", "2", "-Inf", "+Inf", "NaN"},
+			{"0", "0", "~0", "-~0", "+~0", "-2", "2", "-Inf", "+Inf", "NaN"},
+			{"~0", "~0", "~0", "~0", "~0", "~-2", "~2", "-Inf", "+Inf", "NaN"},
+			{"+~0", "+~0", "~0", "~0", "+~0", "~-2", "~2", "-Inf", "+Inf", "NaN"},
+			{"-~0", "-~0", "~0", "-~0", "~0", "~-2", "~2", "-Inf", "+Inf", "NaN"},
+			{"2", "2", "~2", "~2", "~2", "0", "4", "-Inf", "+Inf", "NaN"},
+			{"-2", "-2", "~-2", "~-2", "~-2", "-4", "0", "-Inf", "+Inf", "NaN"},
+			{"+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "+Inf", "NaN", "+Inf", "NaN"},
+			{"-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "-Inf", "NaN", "NaN"},
+			{"NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", "NaN"},
+		}},
+	} {
+		for i, a := range values {
+			for j, b := range values {
+				got := op.f(a, b)
+				if got.String() != op.want[i][j] {
+					t.Errorf("(%s).%s(%s) = %v, want %s", names[i], op.name, names[j], got, op.want[i][j])
+				}
+				// a product and a sum do not depend on the order of their terms
+				if back := op.f(b, a); (op.name == "Mul" || op.name == "Add") && back.String() != got.String() {
+					t.Errorf("(%s).%s(%s) = %v but (%s).%s(%s) = %v", names[i], op.name, names[j], got, names[j], op.name, names[i], back)
+				}
+			}
+		}
+	}
+
+	// the same rules through a Weight and a Length
+	w0, _ := NewWeight(0, 0, "kg")
+	w2, _ := NewWeightFromString("2g")
+	l0, _ := NewLength(0, 0, "m")
+	l2, _ := NewLengthFromString("2cm")
+	for want, got := range map[string]string{
+		"NaN w0*Inf": w0.Mul(PositiveInfinity).String() + " w0*Inf", "NaN w0*NaN": w0.Mul(NaN).String() + " w0*NaN",
+		"+Inf w2*Inf": w2.Mul(PositiveInfinity).String() + " w2*Inf", "NaN w2/0": w2.Div(Zero).String() + " w2/0",
+		"+Inf w2/+~0": w2.Div(NearPositiveZero).String() + " w2/+~0", "-Inf w2/-~0": w2.Div(NearNegativeZero).String() + " w2/-~0",
+		"NaN l0*Inf": l0.Mul(NegativeInfinity).String() + " l0*Inf", "NaN l0*NaN": l0.Mul(NaN).String() + " l0*NaN",
+		"-Inf l2*-Inf": l2.Mul(NegativeInfinity).String() + " l2*-Inf", "NaN l2/0": l2.Div(Zero).String() + " l2/0",
+	} {
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+}

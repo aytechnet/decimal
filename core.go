@@ -819,6 +819,10 @@ func vmeMul(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 	if m1 == 0 {
 		if v1&loss != 0 {
 			return vmeMulMagic1(v1, e1, v2, m2, e2)
+		} else if m2 == 0 && v2&loss != 0 {
+			// d1 is zero and d2 is magic: d2 decides, as it does when it comes first (zero by an
+			// infinity or by a NaN is NaN, zero by a near zero is zero)
+			return vmeMulMagic1(v2, e2, v1, m1, e1)
 		} else {
 			return sign, 0, 0 // return Zero vme
 		}
@@ -874,8 +878,8 @@ func vmeDivRemMagic2(v1, m1 uint64, e1 int64, v2 uint64, e2 int64) (v, m uint64,
 			if v1&loss != 0 { // d1 is also magic
 				if e1 == 0 { // d1 is ~0
 					return sign | loss, 0, 0, 0, 0 // return ~0 and remainder 0
-				} else if e1 == math.MinInt64 { // d1 is ~0, +~0 or -~0 result is also +~0 or -~0
-					return loss | (v1&v2)&sign, 0, math.MinInt64, 0, 0 // return +~0 or -~0 and remainder 0
+				} else if e1 == math.MinInt64 { // d1 is +~0 or -~0 result is also +~0 or -~0, of the sign of a quotient
+					return loss | (v1^v2)&sign, 0, math.MinInt64, 0, 0 // return +~0 or -~0 and remainder 0
 				} else if e1 == math.MaxInt64 { // d1 is +Inf or -Inf result if +Inf or -Inf
 					return loss, 0, 1, 0, 0 // return NaN and remainder 0
 				}
