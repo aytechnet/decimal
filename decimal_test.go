@@ -4081,3 +4081,44 @@ func TestSpecialValuesArithmetic(t *testing.T) {
 		}
 	}
 }
+
+// TestNullAndZeroSum: Null is the unset value and counts as zero, but only Null + Null (and
+// Null - Null) stays Null: with a zero on either side the sum is that explicit zero, whichever comes
+// first. A Weight and a Length follow, the zero keeping the unit of the first operand.
+func TestNullAndZeroSum(t *testing.T) {
+	var n Decimal
+	for name, c := range map[string][2]Decimal{
+		"Null+Null": {n.Add(n), Null}, "Null+0": {n.Add(Zero), Zero}, "0+Null": {Zero.Add(n), Zero}, "0+0": {Zero.Add(Zero), Zero},
+		"Null-Null": {n.Sub(n), Null}, "Null-0": {n.Sub(Zero), Zero}, "0-Null": {Zero.Sub(n), Zero}, "0-0": {Zero.Sub(Zero), Zero},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("%s = %v (null %v), want %v (null %v)", name, c[0], c[0].IsNull(), c[1], c[1].IsNull())
+		}
+	}
+
+	var wn Weight
+	wkg, _ := NewWeight(0, 0, "kg")
+	wg, _ := NewWeight(0, 0, "g")
+	for name, c := range map[string][2]Weight{
+		"Null+Null": {wn.Add(wn), wn}, "Null+0kg": {wn.Add(wkg), wkg}, "0kg+Null": {wkg.Add(wn), wkg},
+		"0g+Null": {wg.Add(wn), wg}, "Null+0g": {wn.Add(wg), wkg}, "0g+0kg": {wg.Add(wkg), wg}, "0kg+0g": {wkg.Add(wg), wkg},
+		"Null-Null": {wn.Sub(wn), wn}, "0g-Null": {wg.Sub(wn), wg}, "Null-0g": {wn.Sub(wg), wkg},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("Weight %s = %v (null %v), want %v (null %v)", name, c[0], c[0].IsNull(), c[1], c[1].IsNull())
+		}
+	}
+
+	var ln Length
+	lm, _ := NewLength(0, 0, "m")
+	lcm, _ := NewLength(0, 0, "cm")
+	for name, c := range map[string][2]Length{
+		"Null+Null": {ln.Add(ln), ln}, "Null+0m": {ln.Add(lm), lm}, "0m+Null": {lm.Add(ln), lm},
+		"0cm+Null": {lcm.Add(ln), lcm}, "Null+0cm": {ln.Add(lcm), lm}, "0cm+0m": {lcm.Add(lm), lcm},
+		"Null-Null": {ln.Sub(ln), ln}, "Null-0cm": {ln.Sub(lcm), lm},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("Length %s = %v (null %v), want %v (null %v)", name, c[0], c[0].IsNull(), c[1], c[1].IsNull())
+		}
+	}
+}

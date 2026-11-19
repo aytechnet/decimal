@@ -653,6 +653,15 @@ func vmeAdd(v1, m1 uint64, e1 int64, v2, m2 uint64, e2 int64) (v, m uint64, e in
 		if v1&loss != 0 {
 			return vmeAddMagic1(v1, e1, v, m2, e2)
 		} else { // d1 == 0 (because loss is not set)
+			if m2 == 0 && v2&loss == 0 {
+				// d2 == 0 as well: the sum is a zero as soon as one of them is, whichever comes
+				// first; only Null + Null stays Null. Null is the tuple without any bit, a zero has
+				// the sign bit or, for a Weight or a Length, the bits of its unit
+				if v1|v2 == 0 {
+					return 0, 0, 0
+				}
+				return v | sign, 0, 0
+			}
 			return v, m2, e2
 		}
 	}
